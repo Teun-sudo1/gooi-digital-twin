@@ -74,16 +74,31 @@ button:disabled {
   -webkit-backdrop-filter: blur(14px) saturate(140%);
 }
 
-/* Top-left: brand, search, place presets */
-.topbar {
+/* Left column: brand, search, place presets, then the simulation dashboard */
+.left-column {
   position: absolute;
   top: var(--gutter);
   left: var(--gutter);
+  bottom: 104px;
   width: 340px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   z-index: 2;
+  pointer-events: none;
+}
+
+.left-column > * {
+  pointer-events: auto;
+}
+
+.topbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .brand {
@@ -272,7 +287,7 @@ button:disabled {
   transition: transform 160ms;
 }
 
-.layer-panel.open .chevron {
+.open > .panel-header .chevron {
   transform: none;
 }
 
@@ -337,11 +352,11 @@ button:disabled {
   outline-offset: 2px;
 }
 
-/* Bottom-right: camera buttons sit above MapLibre's navigation control */
+/* Bottom-right: camera buttons sit above MapLibre's zoom buttons */
 .camera-controls {
   position: absolute;
   right: 10px;
-  bottom: 150px;
+  bottom: 112px;
   display: flex;
   flex-direction: column;
   padding: 3px;
@@ -349,24 +364,31 @@ button:disabled {
 }
 
 .camera-controls button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 9px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 30px;
   border: none;
   border-radius: 7px;
   background: transparent;
-  font-size: 12px;
-  white-space: nowrap;
+  touch-action: none;
 }
 
-.camera-controls button:hover:not(:disabled) {
+.camera-controls button:hover:not(:disabled),
+.camera-controls button[aria-expanded='true'] {
   background: var(--accent-soft);
 }
 
+.camera-controls hr {
+  width: 20px;
+  margin: 3px auto;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
 .camera-controls svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
@@ -374,21 +396,377 @@ button:disabled {
   stroke-linejoin: round;
 }
 
-/* Bottom-left: data provenance */
-.data-notice {
-  position: absolute;
-  left: var(--gutter);
-  bottom: 42px;
-  max-width: 300px;
-  padding: 8px 10px;
-  font-size: 11px;
-  color: var(--text-muted);
-  z-index: 1;
+.camera-controls .compass {
+  stroke: none;
+  fill: var(--text-muted);
 }
 
-.data-notice strong {
+.camera-controls .compass-north {
+  fill: #ff8a7a;
+}
+
+.camera-controls .text-button {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Keyboard shortcuts, opened from the camera controls or with "?" */
+.shortcuts {
+  position: absolute;
+  right: 56px;
+  bottom: 112px;
+  width: 290px;
+  padding: 10px 12px 12px;
+  z-index: 4;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.icon-button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.icon-button:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.shortcuts dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.shortcuts dl > div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcuts dt,
+.shortcuts dd {
+  margin: 0;
+}
+
+.shortcuts dd {
+  font-size: 12px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 3px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  font: 600 11px/1.4 var(--font);
+  text-align: center;
+}
+
+/* Bottom centre: simulation controls */
+.sim-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 2 * var(--gutter));
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px 8px 8px;
+  z-index: 2;
+}
+
+.play-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.play-button svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.play-button:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.sim-clock {
+  display: flex;
+  flex-direction: column;
+  min-width: 82px;
+}
+
+.sim-time {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.sim-period,
+.sim-field > span,
+.sim-field > label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.sim-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sim-field b {
   color: var(--text);
   font-weight: 600;
+}
+
+.sim-field input[type='range'] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.sim-timeline input {
+  width: 150px;
+}
+
+.sim-density input {
+  width: 140px;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.segmented button {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.segmented button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.segmented button:hover:not(.active):not(:disabled) {
+  color: var(--text);
+}
+
+.sim-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid rgba(244, 184, 96, 0.4);
+  border-radius: 999px;
+  background: rgba(244, 184, 96, 0.1);
+  color: #f4b860;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.sim-badge.small {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+}
+
+.sim-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Simulation dashboard */
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-body {
+  padding: 0 12px 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px 8px;
+  margin: 0 0 12px;
+}
+
+.stat dt {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.stat dd {
+  margin: 1px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stat small {
+  margin-left: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.segmented.small {
+  margin-bottom: 8px;
+}
+
+.trend {
+  position: relative;
+  margin: 0;
+}
+
+.trend-plot {
+  position: relative;
+}
+
+.trend svg {
+  display: block;
+  width: 100%;
+  height: 84px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.trend-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.trend-readout strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.trend-readout span,
+.trend-axis {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.trend-grid {
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-crosshair {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
+}
+
+.trend-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel-solid);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.trend-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.vehicle-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.vehicle-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 6px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+.dashboard-footnote {
+  margin: 10px 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
 }
 
 /* Loading and error states */
@@ -478,10 +856,26 @@ button:disabled {
   border-radius: 12px !important;
 }
 
+@media (max-width: 1100px) {
+  .sim-bar {
+    left: var(--gutter);
+    right: 56px;
+    transform: none;
+    width: auto;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .left-column {
+    bottom: 160px;
+  }
+}
+
 @media (max-width: 640px) {
-  .topbar {
+  .left-column {
     right: var(--gutter);
     width: auto;
+    bottom: 240px;
   }
 
   .places {
@@ -498,15 +892,45 @@ button:disabled {
     top: auto;
     right: auto;
     left: var(--gutter);
-    bottom: 56px;
+    bottom: 190px;
   }
 
-  .data-notice {
+  .sim-bar {
+    right: var(--gutter);
+    bottom: 30px;
+    gap: 10px 12px;
+  }
+
+  .sim-timeline {
+    order: 5;
+    flex-basis: 100%;
+  }
+
+  .sim-timeline input {
+    width: 100%;
+  }
+
+  .sim-density input {
+    width: 110px;
+  }
+
+  .sim-bar .sim-badge {
     display: none;
   }
 
-  /* The attribution wraps to two lines on phones, pushing MapLibre's controls up. */
   .camera-controls {
-    bottom: 200px;
+    bottom: 190px;
+  }
+
+  .shortcuts {
+    right: 56px;
+    left: var(--gutter);
+    bottom: 190px;
+    width: auto;
+  }
+
+  /* Pinch-zoom replaces the zoom buttons on touch screens. */
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
+    display: none;
   }
 }

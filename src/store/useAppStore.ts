@@ -10,11 +10,13 @@ interface AppState {
   mapError: string | null
   layerVisibility: LayerVisibility
   layerPanelOpen: boolean
+  shortcutsOpen: boolean
 
   setMap: (map: MapLibreMap | null) => void
   setMapStatus: (status: MapStatus, error?: string) => void
   toggleLayer: (id: LayerGroupId) => void
   setLayerPanelOpen: (open: boolean) => void
+  setShortcutsOpen: (open: boolean) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -24,6 +26,7 @@ export const useAppStore = create<AppState>((set) => ({
   layerVisibility: DEFAULT_VISIBILITY,
   // Start collapsed on phone-sized screens so the map stays visible.
   layerPanelOpen: typeof window === 'undefined' || window.innerWidth > 640,
+  shortcutsOpen: false,
 
   setMap: (map) => set({ map }),
   setMapStatus: (mapStatus, error) => set({ mapStatus, mapError: error ?? null }),
@@ -32,4 +35,5 @@ export const useAppStore = create<AppState>((set) => ({
       layerVisibility: { ...state.layerVisibility, [id]: !state.layerVisibility[id] },
     })),
   setLayerPanelOpen: (layerPanelOpen) => set({ layerPanelOpen }),
+  setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
 }))

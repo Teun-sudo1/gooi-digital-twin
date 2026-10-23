@@ -3,6 +3,7 @@ import type { LayerGroup, LayerGroupId } from '../../types/geo'
 
 /** User-facing layer toggles, each mapped onto the style layers in style.ts. */
 export const LAYER_GROUPS: LayerGroup[] = [
+  { id: 'traffic', label: 'Simulated traffic', layerIds: ['sim-vehicles'] },
   { id: 'buildings', label: '3D buildings', layerIds: ['buildings-3d'] },
   {
     id: 'roads',
@@ -41,6 +42,7 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   green: true,
   landuse: true,
   labels: true,
+  traffic: true,
 }
 
 export function applyVisibility(map: MapLibreMap, visibility: LayerVisibility) {

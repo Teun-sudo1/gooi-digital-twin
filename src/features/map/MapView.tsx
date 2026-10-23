@@ -58,7 +58,7 @@ export function MapView() {
       hash: true,
       attributionControl: { compact: true },
     })
-    instance.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right')
+    instance.addControl(new NavigationControl({ showCompass: false }), 'bottom-right')
     instance.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left')
 
     let loaded = false

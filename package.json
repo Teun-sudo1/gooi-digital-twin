@@ -8,10 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "fetch-roads": "node scripts/fetch-roads.mjs"
   },
   "dependencies": {
-    "@turf/turf": "^7.4.0",
     "maplibre-gl": "^6.15.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -24,6 +25,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "oxlint": "^1.88.0",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
   }
 }
