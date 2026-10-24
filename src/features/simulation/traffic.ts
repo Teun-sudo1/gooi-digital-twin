@@ -10,6 +10,7 @@ import {
 } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute, TreeCache, type Route } from './routing'
+import { SignalState, type Signals } from './signals'
 
 /*
  * Street traffic: cars (five vehicle types), bicycles and pedestrians on the
@@ -32,6 +33,9 @@ import { findRoute, TreeCache, type Route } from './routing'
  *   the cost proportional to what can be seen.
  * - Cars queue behind buses (which are moved by the bus fleet and passed in
  *   as `externals`).
+ * - At junctions with traffic lights, cars and bikes stop for red and for
+ *   amber when they can, and only enter on green when there is room past the
+ *   junction; inside the junction they don't give way (see signals.ts).
  * - When the road network changes (a scenario edit), trips whose remaining
  *   route is no longer allowed are rerouted from the end of the street they
  *   are on, a few at a time; trips with no way left leave the network.
@@ -88,6 +92,8 @@ const YIELD_LOOKAHEAD = 40
 const LOOKAHEAD = 80
 /** Distance (m) before a junction from which vehicles merging into the same street take turns. */
 const MERGE_LOOKAHEAD = 50
+/** Vehicles this close (m) to the end of a street before a traffic light approach call its green. */
+const DETECTOR_REACH = 60
 const EQUAL_PATIENCE = 6
 const MINOR_PATIENCE = 45
 /** Grid size (m) for destination zones. */
@@ -368,6 +374,8 @@ export class TrafficModel {
   viewport: Viewport | null = null
   /** How the weather changes demand and speeds (1 = dry). */
   weather: WeatherEffects = { carDemand: 1, bikeDemand: 1, carSpeed: 1, bikeSpeed: 1, busDemand: 1 }
+  /** Traffic lights, or null for right-of-way rules everywhere. */
+  signals: Signals | null = null
   /** Vehicles moved by other models (buses) that cars queue behind. Set before each step. */
   externals: Agent[] = []
   measures: Measures
@@ -435,6 +443,7 @@ export class TrafficModel {
     const copy = new TrafficModel(net, { density: this.density, startClock: this.clock, seed, treeCapacity: this.treeCapacity, demand: this.demand })
     copy.nextId = this.nextId
     copy.weather = this.weather
+    copy.signals = this.signals?.clone() ?? null
     copy.agents = this.agents.filter((a) => a.mode !== Mode.Foot).map((a) => ({ ...a }))
     return copy
   }
@@ -519,6 +528,7 @@ export class TrafficModel {
     if (this.pendingReroutes) this.reroutePending()
     this.spawnAll(dt)
     this.move(dt)
+    this.signals?.step(dt)
   }
 
   // -------------------------------------------------------------------------
@@ -855,6 +865,12 @@ export class TrafficModel {
     return false
   }
 
+  /** Whether a car fits on the start of an edge (or the traffic there is moving on). */
+  private roomAfter(edge: number, a: Agent) {
+    const rear = this.occupancy.get(edge * 2 + Mode.Car)?.[0]
+    return !rear || rear.offset - rear.length >= a.length + MIN_GAP || rear.speed > 4
+  }
+
   /** The first car (or bus) on an edge beyond `offset`, other than `self`. */
   firstAhead(edge: number, offset: number, self: Agent | null): Agent | null {
     const list = this.occupancy.get(edge * 2 + Mode.Car)
@@ -867,6 +883,7 @@ export class TrafficModel {
     const net = this.net
     const occupancy = this.occupancy
     const measures = this.measures
+    const signals = this.signals
     occupancy.clear()
     // Cars and bikes queue separately (key edge*2 + group); pedestrians pass each other freely.
     for (const a of [...this.agents, ...this.externals]) {
@@ -889,10 +906,32 @@ export class TrafficModel {
         const toEnd = length - a.offset
         let target = this.cruise(a.mode, edge, a.desired, a.top)
 
+        let light: SignalState | -1 = -1
+        if (signals && next >= 0) {
+          if (signals.approachFor(edge) >= 0) {
+            const exit = signals.exitAfter(a.edges, a.idx)
+            const left = signals.turnsLeft(net, edge, exit)
+            signals.detect(edge, toEnd, a.speed, left)
+            light = signals.state(edge, left)
+            const stopAt = toEnd - signals.stopBack(edge)
+            // Don't block the junction: on green, wait at the line until there is room past it.
+            if (light === SignalState.Green && isCar && stopAt > 0 && exit >= 0 && !this.roomAfter(exit, a)) light = SignalState.Red
+            // Stop for red, and for amber when there is room to stop comfortably.
+            const stop = light === SignalState.Red || (light === SignalState.Amber && stopAt > (a.speed * a.speed) / (2 * 4))
+            if (stop && stopAt > -1) target = Math.min(target, Math.sqrt(2 * COMFORT_DECEL * Math.max(0, stopAt)))
+          } else if (toEnd < DETECTOR_REACH && signals.approachFor(next) >= 0) {
+            // Close to a short approach street: already call the green.
+            const left = signals.turnsLeft(net, next, signals.exitAfter(a.edges, a.idx + 1))
+            signals.detect(next, toEnd + edgeLength(net, next), a.speed, left)
+          }
+        }
+
         if (isCar) {
           const endSpeed = next >= 0 ? Math.min(cornerSpeed(net, edge, next), this.cruise(Mode.Car, next, a.desired, a.top)) : 2
           target = Math.min(target, Math.sqrt(endSpeed * endSpeed + 2 * COMFORT_DECEL * Math.max(0, toEnd - 1)))
-          if (next >= 0 && toEnd < YIELD_LOOKAHEAD && this.mustYield(edge, a)) {
+          // At traffic lights the light decides who goes, and inside the junction nobody gives way.
+          const ruled = light === -1 && !signals?.isInternal(edge)
+          if (ruled && next >= 0 && toEnd < YIELD_LOOKAHEAD && this.mustYield(edge, a)) {
             target = Math.min(target, Math.sqrt(2 * COMFORT_DECEL * Math.max(0, toEnd - 1.5)))
           }
         } else if (next < 0) {
@@ -928,6 +967,8 @@ export class TrafficModel {
             const waiting = occupancy.get(other * 2 + a.mode)
             const c = waiting?.[waiting.length - 1]
             if (!c || c.external || c.idx + 1 >= c.edges.length || c.edges[c.idx + 1] !== next) continue
+            // Someone waiting at a traffic light isn't merging.
+            if (c.speed < 1 && signals && signals.approachFor(other) >= 0) continue
             const theirs = edgeLength(net, other) - c.offset
             const merge = toEnd - theirs - c.length
             if ((theirs < toEnd || (theirs === toEnd && c.id < a.id)) && merge < gap) {

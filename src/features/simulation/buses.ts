@@ -1,6 +1,7 @@
 import { AGENT_STRIDE, AgentFlag, Kind, Mode, type FollowInfo, type RouteDiagram, type RouteSide, type StopBoard } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute } from './routing'
+import { SignalState } from './signals'
 import { profileAt, type Agent, type TrafficModel } from './traffic'
 import { BUS_ID_BASE, type Line, type TransitModel, type Trip } from './transit'
 
@@ -10,7 +11,7 @@ import { BUS_ID_BASE, type Line, type TransitModel, type Trip } from './transit'
  * keep to the timetable: it never leaves a stop early, and between stops it
  * aims for the scheduled arrival without exceeding the speed limit. Where the
  * route runs along a street of the simulated network, the bus queues behind
- * cars, and cars queue behind it. Where a street on the
+ * cars, stops at red lights, and cars queue behind it. Where a street on the
  * route is closed to buses, it takes the fastest diversion and rejoins the
  * route after the closure, skipping the stops in between. Delays build up
  * from all of that; they are simulated, not live.
@@ -467,6 +468,18 @@ export class BusFleet {
         if (run) {
           const front = this.offsetIn(run, bus.d + HALF)
           const toEnd = edgeLength(net, run.edge) - front
+          // Traffic light at the end of this street.
+          const signals = traffic.signals
+          if (signals && run.d1 < bus.end - 5 && signals.approachFor(run.edge) >= 0) {
+            let after = this.runAt(runs, run.d1 + 1)
+            while (after && signals.isInternal(after.edge)) after = this.runAt(runs, after.d1 + 1)
+            const left = signals.turnsLeft(net, run.edge, after && after !== run ? after.edge : -1)
+            signals.detect(run.edge, toEnd, bus.v, left)
+            const light = signals.state(run.edge, left)
+            const stopAt = toEnd - signals.stopBack(run.edge)
+            const stop = light === SignalState.Red || (light === SignalState.Amber && stopAt > (bus.v * bus.v) / 8)
+            if (stop && stopAt > -1) target = Math.min(target, Math.sqrt(2 * DECEL * Math.max(0, stopAt)))
+          }
           // Queue behind traffic ahead.
           const leader = traffic.firstAhead(run.edge, front, bus.pseudo)
           let gap = leader ? leader.offset - leader.length - front : Infinity

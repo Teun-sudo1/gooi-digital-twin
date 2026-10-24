@@ -12,6 +12,8 @@ export const LAYER_GROUPS: LayerGroup[] = [
   // Drawn by the scenery layer (src/features/scenery), which follows these toggles itself.
   { id: 'trees', label: 'Trees', layerIds: [] },
   { id: 'streetLights', label: 'Street lighting', layerIds: [] },
+  // Also switches the lights off in the simulation: junctions then use the right-of-way rules.
+  { id: 'trafficLights', label: 'Traffic lights', layerIds: [] },
   {
     id: 'roads',
     label: 'Roads',
@@ -55,6 +57,7 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   transitRoutes: false,
   trees: true,
   streetLights: true,
+  trafficLights: true,
   congestion: false,
 }
 

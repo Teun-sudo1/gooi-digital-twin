@@ -16,7 +16,11 @@ export const Material = {
   Headlight: 4,
   Taillight: 5,
   Skin: 6,
-  Roof: 7, // neutral grey (train roofs)
+  Roof: 7, // neutral grey (train roofs, poles)
+  // 8 is the headlight beam (agentLayer.ts)
+  SignalRed: 9,
+  SignalAmber: 10,
+  SignalGreen: 11,
 } as const
 
 /** Floats per vertex: position (3), normal (3), material (1). */
@@ -40,7 +44,7 @@ function boxes(list: Box[]): Float32Array {
   return new Float32Array(out)
 }
 
-const { Primary, Secondary, Glass, Tyre, Headlight, Taillight, Skin, Roof } = Material
+const { Primary, Secondary, Glass, Tyre, Headlight, Taillight, Skin, Roof, SignalRed, SignalAmber, SignalGreen } = Material
 
 /** Four wheels (or more for long vehicles) poking out under the body. */
 function wheels(width: number, axles: number[], radius = 0.32): Box[] {
@@ -155,6 +159,17 @@ function pedestrian() {
   ])
 }
 
+/** A traffic light: pole and a three-lamp head facing +y (the oncoming traffic). */
+function trafficLight() {
+  return boxes([
+    [-0.06, 0.06, -0.06, 0.06, 0, 3.0, Roof],
+    [-0.17, 0.17, -0.12, 0.1, 2.25, 3.2, Tyre],
+    [-0.09, 0.09, 0.1, 0.13, 2.94, 3.12, SignalRed],
+    [-0.09, 0.09, 0.1, 0.13, 2.65, 2.83, SignalAmber],
+    [-0.09, 0.09, 0.1, 0.13, 2.36, 2.54, SignalGreen],
+  ])
+}
+
 /** One mesh per Kind, indexed by the Kind value. */
 export function buildModels(): Float32Array[] {
   const models: Float32Array[] = []
@@ -167,5 +182,6 @@ export function buildModels(): Float32Array[] {
   models[Kind.Pedestrian] = pedestrian()
   models[Kind.Bus] = bus()
   models[Kind.TrainCar] = trainCar()
+  models[Kind.TrafficLight] = trafficLight()
   return models
 }

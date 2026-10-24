@@ -52,6 +52,7 @@ Everything runs in the browser as a static site. There is no backend.
 - **Pedestrians** on footways, pavements and paths, simulated around the area you are viewing at street level
 - All modes follow the real street network: about 56,000 street segments from OpenStreetMap, with one-way rules, roundabouts and speed limits
 - Cars brake for corners, keep a time gap to the car ahead, and follow Dutch right of way: side roads give way, roundabout traffic goes first, and on equal roads traffic from the right has priority. Queues form on their own.
+- Traffic lights at the 115 junctions where OpenStreetMap maps signals. The corners of a large crossing (two dual carriageways meet in four junction points) form one junction with one controller: vehicles stop only where they enter, and drive straight across. Lights give green by direction, with amber and an all-red clearance; large junctions have a separate left-turn phase. They react to traffic: a green lasts while vehicles keep arriving, directions with nobody waiting are skipped, and a car only enters when there's room past the junction. Cars, bikes on the road and buses stop for red. Signal positions are real; phases and timings are assumed. The **Traffic lights** layer toggle switches them off in the simulation too, so junctions fall back to the right-of-way rules.
 - Weekday demand profiles per mode, with morning and evening rush hours, plus through traffic on the A1 and A27
 - Play/pause, clock and time-of-day scrubber, speed 1–60×, traffic density slider
 - A dashboard of **simulated** statistics: cars, cyclists, buses and trains in service, average speeds, car journey time, delayed cars, distance and estimated CO₂, plus a 24-hour chart of the simulated day against the expected (assumed) demand, with the rush hours shaded
@@ -146,8 +147,8 @@ src/
   features/scenarios/   road edits: scenario network, map layers, editing tools
   features/scenery/     trees and street lights: data, 3D models and layer
   hooks/ store/ types/ utils/ data/
-public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json, gooi-demand.json (generated, committed)
-scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, fetch-demand.mjs, osm-common.mjs
+public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json, gooi-demand.json, gooi-signals.json (generated, committed)
+scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, fetch-demand.mjs, fetch-signals.mjs, osm-common.mjs
 ```
 
 - **Data build (offline).** `scripts/fetch-osm.mjs` downloads all streets and paths in the Gooi from the Overpass API. It splits them at junctions, works out car, bike and foot access in each direction, and keeps each mode's connected network. Roads leaving the area stay connected through a virtual "outside world" node, so through traffic works. It also extracts bus and train route relations, stitching their ways into continuous lines and projecting the stops onto them. `scripts/fetch-timetables.mjs` then streams the national GTFS feed. It matches every trip serving the Gooi to its OSM route variant by line number or train series, stop positions and stop order, and stores the trip's stop times. The outputs are compact (≈1 MB gzipped together) and are committed.
@@ -164,6 +165,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, 
 | --- | --- | --- |
 | Basemap: roads, buildings, water, land use, labels | [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, via [OpenMapTiles](https://openmaptiles.org/) vector tiles hosted by [OpenFreeMap](https://openfreemap.org/) | ODbL; OpenMapTiles schema CC-BY |
 | Street network, bus and train routes and stops | OpenStreetMap contributors, via the [Overpass API](https://overpass-api.de/) | ODbL 1.0 |
+| Traffic signal positions | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-signals.mjs`) | ODbL 1.0 |
 | Trees, forests, street lamps | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-scenery.mjs`) | ODbL 1.0 |
 | Population and businesses per neighbourhood | [CBS Kerncijfers wijken en buurten 2024](https://www.cbs.nl/), via PDOK (`scripts/fetch-demand.mjs`) | CC BY 4.0 |
 | Aerial photos | [PDOK Luchtfoto](https://www.pdok.nl/) (Beeldmateriaal Nederland) | CC BY 4.0 |
@@ -177,7 +179,7 @@ OpenFreeMap, Overpass, OVapi, PDOK and Open-Meteo are free public services, so k
 
 - **All traffic is simulated.** Car, bike and pedestrian numbers, speeds, journey times, delays and emissions come from a simplified model with assumed demand. They are not observations or predictions of real traffic.
 - Buses and trains follow real timetables for one representative weekday (shown in the dashboard), but there is no live data.
-- No traffic lights, lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other.
+- Traffic light phases and timings are assumed, not the real signal plans; there are no pedestrian or cycle light phases of their own (a few junctions get a simple pedestrian phase). No lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other.
 - Bus passengers are simulated with assumed demand; there is no ridership data. Bus stretches without a matching simulated street (such as dedicated busways) are driven freely. Bus delays are simulated and don't reflect real punctuality. Trains don't interact with anything.
 - The before/after comparison runs both versions with the same demand, so it shows rerouting and congestion effects, not changes in how people choose to travel. While a comparison is running the simulation does twice the work, so at 60× the clock can run slower than requested.
 - Pedestrians are only simulated around a street-level view (zoom 15+).
@@ -203,6 +205,7 @@ OpenFreeMap, Overpass, OVapi, PDOK and Open-Meteo are free public services, so k
 npm run data            # streets, transit routes, timetables, trees and lights, then neighbourhood figures (uses cached downloads)
 node scripts/fetch-osm.mjs --refresh          # force fresh OSM data
 node scripts/fetch-scenery.mjs --refresh      # force fresh trees, forests and lamps
+node scripts/fetch-signals.mjs --refresh      # force fresh traffic signal positions
 node scripts/fetch-demand.mjs --refresh       # force fresh CBS neighbourhood figures
 node scripts/fetch-timetables.mjs --refresh   # force a fresh GTFS feed (~240 MB)
 node scripts/fetch-timetables.mjs --date 20261104   # use another service day
