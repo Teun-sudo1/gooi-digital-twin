@@ -59,7 +59,7 @@ export const useAppStore = create<AppState>((set) => ({
   liveWeather: null,
   weather: 'dry',
   season: seasonOf(new Date()),
-  treeOpacity: 1,
+  treeOpacity: 0.65,
 
   setMap: (map) => set({ map }),
   setMapStatus: (mapStatus, error) => set({ mapStatus, mapError: error ?? null }),
