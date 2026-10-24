@@ -27,6 +27,7 @@ export type LayerGroupId =
   | 'transitRoutes'
   | 'trees'
   | 'streetLights'
+  | 'congestion'
 
 export interface LayerGroup {
   id: LayerGroupId

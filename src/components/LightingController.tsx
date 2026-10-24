@@ -1,6 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
+import { seasonalPalette, seasonDate } from '../features/environment/environment'
 import { applyTheme, nightFactorFor } from '../features/map/lighting'
-import { applyPalette, paletteFor } from '../features/map/style'
+import { AERIAL, applyPalette, paletteFor } from '../features/map/style'
 import { useMapInstance } from '../hooks/useMapInstance'
 import { useAppStore } from '../store/useAppStore'
 import { selectClock, useSimulationStore } from '../store/useSimulationStore'
@@ -13,14 +14,25 @@ import { selectClock, useSimulationStore } from '../store/useSimulationStore'
 export function LightingController() {
   const map = useMapInstance()
   const mode = useAppStore((s) => s.lightingMode)
+  const season = useAppStore((s) => s.season)
+  const seasonSetting = useAppStore((s) => s.seasonSetting)
+  const weather = useAppStore((s) => s.weather)
   const controller = useSimulationStore((s) => s.controller)
-  // Quantised so the map is only recoloured when the light visibly changes.
-  const night = useSimulationStore((s) => Math.round(nightFactorFor(mode, selectClock(s)) * 40) / 40)
+  const clock = useSimulationStore(selectClock)
+  // The season moves the sun; quantised so the map only recolours when the light visibly changes.
+  const date = useMemo(() => (seasonSetting === 'auto' ? undefined : seasonDate(seasonSetting)), [seasonSetting])
+  const night = Math.round(nightFactorFor(mode, clock, date) * 40) / 40
 
   useEffect(() => applyTheme(night), [night])
   useEffect(() => {
-    if (map) applyPalette(map, paletteFor(night))
-  }, [map, night])
+    if (!map) return
+    applyPalette(map, seasonalPalette(paletteFor(night), season, weather, night))
+    // Aerial photos dim with the light.
+    if (map.getLayer(AERIAL)) {
+      map.setPaintProperty(AERIAL, 'raster-brightness-max', 1 - 0.72 * night)
+      map.setPaintProperty(AERIAL, 'raster-saturation', -0.4 * night)
+    }
+  }, [map, night, season, weather])
   useEffect(() => {
     controller?.setNight(night)
   }, [controller, night])

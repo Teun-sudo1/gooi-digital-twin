@@ -54,6 +54,8 @@ export function useScenery() {
       const { layerVisibility, lightingMode } = useAppStore.getState()
       const night = Math.round(nightFactorFor(lightingMode, selectClock(useSimulationStore.getState())) * 40) / 40
       layer.setVisible(layerVisibility.trees, layerVisibility.streetLights)
+      const { season, weather } = useAppStore.getState()
+      layer.setAppearance(season, weather === 'snow')
       layer.setNight(night)
       const pools = layerVisibility.streetLights && night > 0.05
       map.setLayoutProperty(POOLS, 'visibility', pools ? 'visible' : 'none')
@@ -72,7 +74,14 @@ export function useScenery() {
         let lastNight = -1
         unsubscribers.push(
           useAppStore.subscribe((s, prev) => {
-            if (s.layerVisibility !== prev.layerVisibility || s.lightingMode !== prev.lightingMode) apply()
+            if (
+              s.layerVisibility !== prev.layerVisibility ||
+              s.lightingMode !== prev.lightingMode ||
+              s.season !== prev.season ||
+              s.weather !== prev.weather ||
+              s.seasonSetting !== prev.seasonSetting
+            )
+              apply()
           }),
           useSimulationStore.subscribe((s) => {
             const night = Math.round(nightFactorFor(useAppStore.getState().lightingMode, selectClock(s)) * 40)

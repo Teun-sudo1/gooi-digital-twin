@@ -415,11 +415,11 @@ button:disabled {
   outline-offset: 2px;
 }
 
-/* Bottom-right: camera buttons sit above MapLibre's zoom buttons */
+/* Bottom-right: one column of camera and zoom buttons */
 .camera-controls {
   position: absolute;
-  right: 10px;
-  bottom: 112px;
+  right: var(--gutter);
+  bottom: 40px;
   display: flex;
   flex-direction: column;
   padding: 3px;
@@ -477,8 +477,8 @@ button:disabled {
 /* Keyboard shortcuts, opened from the camera controls or with "?" */
 .shortcuts {
   position: absolute;
-  right: 56px;
-  bottom: 112px;
+  right: 62px;
+  bottom: 40px;
   width: 290px;
   padding: 10px 12px 12px;
   z-index: 4;
@@ -1275,10 +1275,8 @@ kbd {
   flex-shrink: 0;
   padding: 1px 7px;
   border-radius: 6px;
-  color: #fff;
   font-size: 12px;
   font-weight: 700;
-  text-shadow: 0 0 2px rgba(0, 0, 0, 0.45);
 }
 
 .follow-stats {
@@ -1492,6 +1490,265 @@ kbd {
 }
 
 .follow-title .line-badge {
-  color: #fff;
   overflow: visible;
+}
+
+.vehicle-legend .congestion-key {
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.congestion-key > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.swatch.line {
+  width: 12px;
+  height: 4px;
+}
+
+/* Departure board of a clicked stop */
+.right-column > .stop-board {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  min-height: 140px;
+  overflow: hidden;
+}
+
+.panel-header.static {
+  cursor: default;
+}
+
+.board-body {
+  padding: 0 12px 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.board-name {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.board-lines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.board-table td {
+  padding: 4px 4px 4px 0;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.board-table tr.followable {
+  cursor: pointer;
+}
+
+.board-table tr.followable:hover {
+  background: var(--tint);
+}
+
+.board-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.board-to {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.board-status {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.board-status.now {
+  color: #30a46c;
+  font-weight: 600;
+}
+
+.board-status.late {
+  color: #e5484d;
+  font-weight: 600;
+}
+
+.board-waiting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 0;
+  font-size: 11.5px;
+}
+
+.board-waiting .sim-badge.small {
+  margin-left: 0;
+}
+
+/* Weather over the map */
+.weather-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  transition: background 1.5s ease;
+}
+
+.weather-overlay canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.weather-rain {
+  background: rgba(70, 85, 105, 0.12);
+}
+
+.weather-heavy-rain {
+  background: rgba(55, 68, 88, 0.22);
+}
+
+.weather-fog {
+  background: linear-gradient(to bottom, rgba(205, 210, 216, 0.75), rgba(205, 210, 216, 0.25) 55%, rgba(205, 210, 216, 0.12));
+}
+
+:root[data-theme='dark'] .weather-fog {
+  background: linear-gradient(to bottom, rgba(60, 66, 76, 0.75), rgba(60, 66, 76, 0.25) 55%, rgba(60, 66, 76, 0.12));
+}
+
+.layer-list select {
+  max-width: 120px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-solid);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* Phone layout: panels live in the bottom dock (MobileDock) */
+@media (max-width: 640px) {
+  .app.mobile .left-column {
+    bottom: auto;
+  }
+
+  .mobile-dock {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 3;
+    pointer-events: none;
+  }
+
+  .mobile-dock > * {
+    pointer-events: auto;
+  }
+
+  .mobile-dock .sim-bar {
+    position: static;
+    transform: none;
+    width: auto;
+    max-width: none;
+    padding: 6px 10px 6px 6px;
+  }
+
+  .mobile-sheet {
+    max-height: 46vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .mobile-sheet .panel.embedded {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .mobile-sheet .dashboard-body,
+  .mobile-sheet .scenario-body,
+  .mobile-sheet .layer-list,
+  .mobile-sheet .route-body,
+  .mobile-sheet .board-body {
+    padding-top: 10px;
+    overflow: visible;
+  }
+
+  .mobile-tabs {
+    display: flex;
+    padding: 3px;
+  }
+
+  .mobile-tabs button {
+    flex: 1;
+    min-height: 40px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .mobile-tabs button.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Camera buttons and map credits move up, out of the dock's way. */
+  .app.mobile .camera-controls {
+    top: 160px;
+    bottom: auto;
+    right: 8px;
+  }
+
+  .app.mobile .shortcuts {
+    display: none;
+  }
+
+  .app.mobile .maplibregl-ctrl-bottom-right {
+    top: 160px;
+    bottom: auto;
+    right: 52px;
+  }
+
+  .app.mobile .maplibregl-ctrl-bottom-left {
+    display: none;
+  }
+
+  .app.mobile .follow-card {
+    top: 150px;
+    bottom: auto;
+    left: 8px;
+    right: 52px;
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+}
+
+/* Panels in the right column keep at least their header when space runs out. */
+.right-column > .panel {
+  min-height: 40px;
 }

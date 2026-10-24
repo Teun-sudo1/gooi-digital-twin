@@ -1,6 +1,8 @@
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import { create } from 'zustand'
 import { DEFAULT_VISIBILITY, type LayerVisibility } from '../features/map/layers'
+import { seasonOf, type LiveWeather, type Season, type SeasonSetting, type Weather, type WeatherSetting } from '../features/environment/environment'
+import type { Basemap } from '../features/map/layers'
 import type { LightingMode } from '../features/map/lighting'
 import type { LayerGroupId, MapStatus } from '../types/geo'
 
@@ -14,6 +16,14 @@ interface AppState {
   shortcutsOpen: boolean
   /** Follow the simulated sun, or force day or night. */
   lightingMode: LightingMode
+  /** Drawn map or aerial photos. */
+  basemap: Basemap
+  weatherSetting: WeatherSetting
+  seasonSetting: SeasonSetting
+  liveWeather: LiveWeather | null
+  /** What is in effect: the chosen weather, or the live weather. */
+  weather: Weather
+  season: Season
 
   setMap: (map: MapLibreMap | null) => void
   setMapStatus: (status: MapStatus, error?: string) => void
@@ -22,6 +32,7 @@ interface AppState {
   setShortcutsOpen: (open: boolean) => void
   setLightingMode: (mode: LightingMode) => void
 }
+
 
 export const useAppStore = create<AppState>((set) => ({
   map: null,
@@ -32,6 +43,12 @@ export const useAppStore = create<AppState>((set) => ({
   layerPanelOpen: typeof window === 'undefined' || (window.innerWidth > 640 && window.innerHeight > 1100),
   shortcutsOpen: false,
   lightingMode: 'auto',
+  basemap: 'map',
+  weatherSetting: 'live',
+  seasonSetting: 'auto',
+  liveWeather: null,
+  weather: 'dry',
+  season: seasonOf(new Date()),
 
   setMap: (map) => set({ map }),
   setMapStatus: (mapStatus, error) => set({ mapStatus, mapError: error ?? null }),

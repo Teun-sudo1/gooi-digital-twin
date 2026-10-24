@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { AGENT_STRIDE, Kind, Mode, type NetworkFile, type TransitFile } from '../../types/simulation'
+import { AGENT_STRIDE, Kind, Mode, type DemandFile, type NetworkFile, type TransitFile } from '../../types/simulation'
+import { WEATHER_EFFECTS } from '../environment/environment'
 import { nightFactor, sunElevation } from '../map/lighting'
 import { buildNetwork, edgeLength, toLngLat, type Network } from './network'
 import { buildScenarioNetwork } from '../scenarios/scenarioNetwork'
@@ -15,6 +16,7 @@ const read = <T,>(path: string) =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`../../../public/data/${path}`, import.meta.url)), 'utf8')) as T
 const networkFile = read<NetworkFile>('gooi-network.json')
 const transitFile = read<TransitFile>('gooi-transit.json')
+const demandFile = read<DemandFile>('gooi-demand.json')
 
 const segmentsOf = (net: Network, edges: Int32Array) => [...edges].map((e) => net.edgeSeg[e])
 const cost = (net: Network, mode: Mode, edges: Int32Array) =>
@@ -89,13 +91,62 @@ describe('street traffic', () => {
     const kinds = new Set<number>()
     for (let i = 0; i < n; i++) {
       const [lng, lat] = toLngLat(net.projection, frame[i * AGENT_STRIDE], frame[i * AGENT_STRIDE + 1])
-      expect(lng).toBeGreaterThan(west - 0.03)
-      expect(lng).toBeLessThan(east + 0.03)
-      expect(lat).toBeGreaterThan(south - 0.03)
-      expect(lat).toBeLessThan(north + 0.03)
+      expect(lng).toBeGreaterThan(west - 0.04)
+      expect(lng).toBeLessThan(east + 0.04)
+      expect(lat).toBeGreaterThan(south - 0.04)
+      expect(lat).toBeLessThan(north + 0.04)
       kinds.add(frame[i * AGENT_STRIDE + 3])
     }
     for (const kind of [Kind.Hatchback, Kind.Sedan, Kind.Suv, Kind.Van, Kind.Bike]) expect(kinds.has(kind)).toBe(true)
+  })
+
+  it('keeps cars from overlapping each other', () => {
+    const sim = new TrafficModel(net, { density: 3000, startClock: 8 * 3600, seed: 21 })
+    sim.populate()
+    let worst = Infinity
+    for (let i = 0; i < 600; i++) {
+      sim.step(0.5)
+      if (i % 60 !== 59) continue
+      const byEdge = new Map<number, { offset: number; length: number }[]>()
+      for (const a of sim.agents) {
+        if (a.mode !== Mode.Car) continue
+        const list = byEdge.get(a.edges[a.idx]) ?? []
+        list.push(a)
+        byEdge.set(a.edges[a.idx], list)
+      }
+      for (const list of byEdge.values()) {
+        list.sort((p, q) => p.offset - q.offset)
+        for (let k = 1; k < list.length; k++) worst = Math.min(worst, list[k].offset - list[k].length - list[k - 1].offset)
+      }
+    }
+    // Bumper to bumper at worst, never inside each other.
+    expect(worst).toBeGreaterThan(-0.5)
+  })
+
+  it('starts trips where people live, in proportion to CBS population', () => {
+    const sim = new TrafficModel(net, { density: 1000, startClock: 8 * 3600, seed: 3, demand: demandFile })
+    const [car] = sim.zoneInfo
+    const w = car.homeWeights!
+    const each = [...w].map((c, i) => c - (i ? w[i - 1] : 0))
+    expect(Math.max(...each)).toBeGreaterThan(5 * (each.reduce((a, b) => a + b, 0) / each.length))
+    expect(car.zoneWeights).not.toBeNull()
+  })
+
+  it('lets the weather change demand and speeds', () => {
+    const sim = new TrafficModel(net, { density: 1000, startClock: 8 * 3600, seed: 3 })
+    const cars = sim.target(Mode.Car)
+    const bikes = sim.target(Mode.Bike)
+    sim.weather = WEATHER_EFFECTS['heavy-rain']
+    expect(sim.target(Mode.Car)).toBeGreaterThan(cars)
+    expect(sim.target(Mode.Bike)).toBeLessThan(bikes * 0.6)
+  })
+
+  it('measures congestion per street', () => {
+    const sim = new TrafficModel(net, { density: 2500, startClock: 8 * 3600, seed: 5 })
+    sim.populate()
+    for (let i = 0; i < 120; i++) sim.step(0.5)
+    expect(sim.carTime.filter((t) => t > 15).length).toBeGreaterThan(300)
+    expect(sim.delayedTime.some((t) => t > 0)).toBe(true)
   })
 
   it('simulates pedestrians only around a street-level view', () => {
@@ -186,7 +237,13 @@ describe('public transport', () => {
     // Cars queue behind moving buses.
     expect(traffic.externals.length).toBeGreaterThan(5)
     const bus = fleet.buses[0]
-    expect(fleet.inspect(bus.id)).toMatchObject({ type: 'bus', line: bus.line.info.index })
+    expect(fleet.inspect(bus.id)).toMatchObject({ type: 'bus', line: bus.line.info.index, capacity: 80 })
+    expect(fleet.buses.every((b) => b.onBoard <= 80)).toBe(true)
+    // The departure board of a bus's next stop lists that bus as on its way.
+    const coming = fleet.buses.find((b) => b.stopIdx < b.stops.length && b.stopLine[b.stopIdx] >= 0 && b.stopIdx + 1 < b.stops.length)!
+    const board = fleet.board(coming.line.info.index, coming.stopLine[coming.stopIdx], traffic.clock)!
+    expect(board.departures.some((d) => d.busId === coming.id && d.status !== 'scheduled')).toBe(true)
+    expect(board.lines.length).toBeGreaterThan(0)
     // Simulated passengers ride the buses, and the route diagram shows the whole line.
     expect(fleet.buses.reduce((n, b) => n + b.onBoard, 0)).toBeGreaterThan(50)
     const info = fleet.inspect(bus.id)

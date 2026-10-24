@@ -7,6 +7,7 @@ import {
   Kind,
   type FromWorker,
   type Intervention,
+  type WeatherEffects,
   type JunctionInfo,
   type Projection,
   type SegmentInfo,
@@ -23,6 +24,9 @@ const ROUTES = 'transit-routes'
 const STOPS = 'transit-stops'
 const BUS_LABELS = 'sim-bus-labels'
 const FOLLOW_RING = 'sim-follow-ring'
+const CONGESTION = 'congestion'
+/** Free flowing → standing: green, yellow, orange, red. */
+export const CONGESTION_COLOURS = ['#30a46c', '#e2b203', '#f76808', '#c62a2f']
 const FONT = ['Noto Sans Regular']
 /** Simulated seconds between trend-chart samples. */
 const HISTORY_INTERVAL = 300
@@ -102,6 +106,8 @@ export class SimulationClient {
   private lastTransit: Float32Array = new Float32Array(0)
   private lastTransitCount = 0
   private follow: number | null = null
+  private weather: WeatherEffects | null = null
+  private congestionGeometry = new Map<number, [number, number][]>()
   private chase = false
   private picks = new Map<number, (result: PickResult) => void>()
   private nextPick = 1
@@ -119,6 +125,7 @@ export class SimulationClient {
       type: 'init',
       networkUrl: new URL('data/gooi-network.json', base).href,
       transitUrl: new URL('data/gooi-transit.json', base).href,
+      demandUrl: new URL('data/gooi-demand.json', base).href,
       clock: state.startClock,
       density: state.density,
       speed: state.speed,
@@ -193,6 +200,17 @@ export class SimulationClient {
     if (id === null) this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({ type: 'FeatureCollection', features: [] })
   }
 
+  setWeather(effects: WeatherEffects) {
+    this.weather = effects
+    this.post({ type: 'weather', effects })
+  }
+
+  /** Open the departure board of a stop (null closes it). */
+  openStop(stop: { line: number; stop: number } | null) {
+    this.post({ type: 'stop', line: stop?.line ?? null, stop: stop?.stop ?? 0 })
+    useSimulationStore.setState({ stop, board: null })
+  }
+
   /** Turn the map with the followed vehicle. */
   setChase(chase: boolean) {
     this.chase = chase
@@ -217,10 +235,10 @@ export class SimulationClient {
     this.map.off('moveend', this.sendViewport)
     window.clearTimeout(this.viewportTimer)
     if (!this.map.getStyle()) return
-    for (const layer of [FOLLOW_RING, BUS_LABELS, 'sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
+    for (const layer of [CONGESTION, FOLLOW_RING, BUS_LABELS, 'sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
       if (this.map.getLayer(layer)) this.map.removeLayer(layer)
     }
-    for (const source of [AGENTS, TRANSIT, ROUTES, STOPS, BUS_LABELS, FOLLOW_RING]) {
+    for (const source of [AGENTS, TRANSIT, ROUTES, STOPS, BUS_LABELS, FOLLOW_RING, CONGESTION]) {
       if (this.map.getSource(source)) this.map.removeSource(source)
     }
   }
@@ -263,6 +281,7 @@ export class SimulationClient {
         this.setNight(this.night)
         this.sendViewport()
         if (this.scenario.length) this.post({ type: 'scenario', interventions: this.scenario })
+        if (this.weather) this.post({ type: 'weather', effects: this.weather })
         useSimulationStore.setState({ status: 'ready', lines: message.lines, timetableDate: message.timetableDate })
         break
       case 'error':
@@ -296,6 +315,19 @@ export class SimulationClient {
       case 'comparison':
         useSimulationStore.setState({ comparison: message.comparison })
         break
+      case 'board':
+        if (useSimulationStore.getState().stop) useSimulationStore.setState({ board: message.board })
+        break
+      case 'congestion': {
+        for (const { segment, coordinates } of message.geometry) this.congestionGeometry.set(segment, coordinates)
+        const features: Feature<LineString>[] = []
+        message.segments.forEach((segment, i) => {
+          const coordinates = this.congestionGeometry.get(segment)
+          if (coordinates) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates }, properties: { level: message.levels[i] } })
+        })
+        this.map.getSource<GeoJSONSource>(CONGESTION)?.setData({ type: 'FeatureCollection', features })
+        break
+      }
       case 'stats': {
         const { stats } = message
         let { history } = useSimulationStore.getState()
@@ -490,11 +522,31 @@ export class SimulationClient {
       properties: { colour: line.colour, mode: line.mode },
     }))
     const stops: Feature<Point>[] = this.lines.flatMap((line) =>
-      line.stops.map((coordinates) => ({
+      line.stops.map((coordinates, s) => ({
         type: 'Feature' as const,
         geometry: { type: 'Point' as const, coordinates },
-        properties: { colour: line.colour, mode: line.mode },
+        properties: { colour: line.colour, mode: line.mode, l: line.index, s },
       })),
+    )
+    // How congested each street is, under everything else the simulation draws.
+    map.addSource(CONGESTION, { type: 'geojson', data: empty })
+    map.addLayer(
+      {
+        id: CONGESTION,
+        type: 'line',
+        source: CONGESTION,
+        minzoom: 11,
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: show(visibility.congestion) },
+        paint: {
+          'line-color': [
+            'interpolate', ['linear'], ['get', 'level'],
+            0.05, CONGESTION_COLOURS[0], 0.2, CONGESTION_COLOURS[1], 0.4, CONGESTION_COLOURS[2], 0.65, CONGESTION_COLOURS[3],
+          ],
+          'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 11, 1.5, 14, 3, 17, 6],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 17, 0.55],
+        },
+      },
+      before,
     )
     map.addSource(ROUTES, { type: 'geojson', data: { type: 'FeatureCollection', features: routes } })
     map.addSource(STOPS, { type: 'geojson', data: { type: 'FeatureCollection', features: stops } })

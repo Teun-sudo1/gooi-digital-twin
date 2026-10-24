@@ -2,11 +2,18 @@ import { REGION_CENTER } from '../../data/places'
 
 /*
  * Day and night follow the simulated clock: the sun's elevation over the Gooi
- * is computed for today's date (Europe/Amsterdam time), and the map fades
- * from the day palette to the night palette through twilight.
+ * is computed for today's date, or a date in the chosen season
+ * (Europe/Amsterdam time), and the map fades from the day palette to the
+ * night palette through twilight.
  */
 
 const RAD = Math.PI / 180
+
+/** The date the sun is computed for (set by the season control); null = today. */
+let sunDate: Date | null = null
+export function setSunDate(date: Date | null) {
+  sunDate = date
+}
 
 /** Minutes east of UTC for Amsterdam on the given date (60 in winter, 120 in summer). */
 export function amsterdamOffsetMinutes(date: Date): number {
@@ -29,7 +36,7 @@ export function amsterdamClockNow(now = new Date()): number {
  * Solar elevation in degrees at a local (Amsterdam) clock time on `date`,
  * using the NOAA approximation (accurate to a fraction of a degree).
  */
-export function sunElevation(clock: number, date = new Date(), [lng, lat] = REGION_CENTER): number {
+export function sunElevation(clock: number, date = sunDate ?? new Date(), [lng, lat] = REGION_CENTER): number {
   const start = Date.UTC(date.getUTCFullYear(), 0, 1)
   const dayOfYear = Math.floor((date.getTime() - start) / 86_400_000) + 1
   const utcMinutes = clock / 60 - amsterdamOffsetMinutes(date)
@@ -64,8 +71,8 @@ export function applyTheme(night: number) {
 
 export type LightingMode = 'auto' | 'day' | 'night'
 
-export function nightFactorFor(mode: LightingMode, clock: number): number {
+export function nightFactorFor(mode: LightingMode, clock: number, date?: Date): number {
   if (mode === 'day') return 0
   if (mode === 'night') return 1
-  return nightFactor(sunElevation(clock))
+  return nightFactor(sunElevation(clock, date))
 }

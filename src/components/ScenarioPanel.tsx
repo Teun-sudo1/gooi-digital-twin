@@ -25,7 +25,7 @@ function describeEdit(edit: RoadEdit) {
 
 type Item = { key: string; colour: string; title: string; detail: string; coordinates: [number, number][]; order: number; remove: () => void }
 
-export function ScenarioPanel() {
+export function ScenarioPanel({ embedded = false }: { embedded?: boolean }) {
   const map = useMapInstance()
   const ready = useSimulationStore((s) => s.status === 'ready')
   const rerouted = useSimulationStore((s) => s.stats?.reroutedTrips ?? 0)
@@ -64,15 +64,17 @@ export function ScenarioPanel() {
   const hint = active?.id === 'cycle-path' && draft ? 'Click to add bends, double-click near a junction to finish. Backspace undoes a bend, Esc cancels.' : active?.hint
 
   return (
-    <section className={`panel scenario-panel ${open ? 'open' : ''}`} aria-label="Road changes">
-      <button className="panel-header" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span>Road changes</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
-          <path d="m4 6 4 4 4-4" />
-        </svg>
-      </button>
+    <section className={`panel scenario-panel ${open || embedded ? 'open' : ''} ${embedded ? 'embedded' : ''}`} aria-label="Road changes">
+      {!embedded && (
+        <button className="panel-header" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span>Road changes</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
+            <path d="m4 6 4 4 4-4" />
+          </svg>
+        </button>
+      )}
 
-      {open && (
+      {(open || embedded) && (
         <div className="scenario-body">
           <div className="tool-grid" role="toolbar" aria-label="Editing tools">
             {TOOLS.map((t) => (

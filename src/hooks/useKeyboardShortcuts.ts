@@ -81,6 +81,7 @@ export function useKeyboardShortcuts() {
         case 'escape':
           useAppStore.getState().setShortcutsOpen(false)
           useSimulationStore.getState().controller?.setFollow(null)
+          useSimulationStore.getState().controller?.openStop(null)
           break
       }
     }

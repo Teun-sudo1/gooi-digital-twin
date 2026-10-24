@@ -421,6 +421,7 @@ export class TransitModel {
         nextStopTime: next?.time ?? null,
         detour: false,
         onBoard: null,
+        capacity: null,
         route: null,
       }
     }

@@ -107,6 +107,18 @@ export function CameraControls() {
           <path d="M2.5 7.5 8 3l5.5 4.5M4 6.5V13h8V6.5" />
         </svg>
       </button>
+      <hr />
+      <button disabled={!map} onClick={() => map?.zoomIn()} aria-label="Zoom in" title="Zoom in (+)">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M8 3v10M3 8h10" />
+        </svg>
+      </button>
+      <button disabled={!map} onClick={() => map?.zoomOut()} aria-label="Zoom out" title="Zoom out (−)">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3 8h10" />
+        </svg>
+      </button>
+      <hr />
       <button
         onClick={() => setShortcutsOpen(!shortcutsOpen)}
         aria-label="Keyboard shortcuts"

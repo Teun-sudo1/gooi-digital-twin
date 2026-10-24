@@ -21,12 +21,14 @@ Everything runs in the browser as a static site. There is no backend.
 ### Map
 
 - 3D map of the whole Gooi region, with extruded buildings from OpenStreetMap
-- **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date. Headlights come on after dusk. The layer panel can also force Day or Night.
+- **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date (or the chosen season). Headlights come on after dusk. The layer panel can also force Day or Night.
+- **Aerial photos:** switch the base map to *Aerial* for the latest national aerial photography (PDOK Luchtfoto). Roads, labels and the simulation stay on top, and the photos dim at night.
+- **Weather and seasons:** *Live* weather (from Open-Meteo), or choose dry, rain, heavy rain, snow or fog. Rain and snow fall over the map, and the weather changes travel: rain moves cyclists into cars and buses and slows everyone down. The season (today's, or one you choose) colours the trees, from spring blossom to autumn leaves and bare winter branches, tints parks and woods, and sets the sun's path, so winter evenings are dark early.
 - Roads, rail, water, forests, parks and Dutch place and street names
 - **Trees:** the 9,000+ trees and tree rows mapped in OpenStreetMap at their real positions, and the Gooi's forests and woods filled with oaks, beeches, pines and spruces inside their real OSM outlines (the positions of individual forest trees are illustrative)
 - **Street lighting:** lamp posts along lit streets, with warm pools of light on the road after dark; from far away the towns glow. About 150 lamps are mapped in OSM; the other ~34,000 are placed by rule (see [limitations](#known-limitations))
 - Layer toggles, including **Transit routes & stops**, which only changes the map display: buses and trains keep running
-- Rotate buttons (tap or hold), compass, 2D/3D toggle, reset view, keyboard shortcuts (press `?`)
+- One column of camera buttons: rotate (tap or hold), compass, 2D/3D, reset view, zoom and keyboard shortcuts (press `?`)
 - One-click views of each town; address search through the PDOK Locatieserver
 - The camera is kept in the URL, so views can be shared
 
@@ -36,10 +38,14 @@ Everything runs in the browser as a static site. There is no backend.
 
 ![Street lighting in Huizen at night](docs/screenshot-street-lights.png)
 
+![Huizen on aerial photos in autumn, with simulated traffic and the congestion colours](docs/screenshot-aerial-autumn.png)
+
 ### Simulated traffic
 
 - **Every agent is a 3D model** from street level up to zoom 13.5: cars (with glazed cabins, wheels, head- and brake lights), vans, trucks, buses in their line colours, NS train carriages, cyclists and pedestrians. They're drawn in a custom WebGL layer that shares depth with the 3D buildings. Agents are drawn larger than life (1.5× at street level, more when zoomed out), and further out they switch to flat icons.
-- **Cars** of five types (hatchback, sedan, SUV, van, truck), each with its own size, colours, acceleration and top speed. Brake lights show when a car slows or stops.
+- **Cars** of five types (hatchback, sedan, SUV, van, truck), each with its own size, colours, acceleration and top speed. Brake lights show when a car slows or stops. Cars keep a safe braking distance to the vehicle ahead (looking past short junction pieces), take turns when two streets merge, and never appear on top of each other.
+- **Where trips go:** trips start at homes in proportion to each neighbourhood's population and go to destinations in proportion to its businesses (CBS figures for 2024), with about 15% of trips leaving the region. So Hilversum's centre and business parks attract commuters, and residential areas send them out.
+- **Congestion map:** every street with car traffic is coloured by how much of the time cars there spend held up (below 40% of the limit for more than 10 s): green, yellow, orange, red.
 - **Follow any vehicle:** click a car, bike, pedestrian, bus or train and the camera follows it. A card shows its speed, street, destination, distance left and trip time. For buses and trains it shows the next stop with its scheduled time, the delay, and the (simulated) passengers on board. *Chase view* turns the map with the vehicle; dragging the map or `Esc` stops following.
 - **Cyclists**, including faster e-bikes, on cycle paths and streets. Contraflow cycling is allowed where OSM tags it.
 - **Pedestrians** on footways, pavements and paths, simulated around the area you are viewing at street level
@@ -76,12 +82,17 @@ When the network changes, every trip whose remaining route is no longer allowed 
 - Buses carry their line colour, and a badge with the line number floats above every bus. Trains are drawn carriage by carriage in NS yellow and blue.
 - **Buses drive in the simulated traffic.** Each scheduled trip drives its real route and stops at its stops. It never leaves a stop early, and between stops it aims for the scheduled arrival without exceeding the limit. Where the route follows a simulated street (about 70% of route length), the bus queues behind cars and has cars queue behind it. Where a street on the route is closed, it takes the fastest diversion and rejoins the route, skipping the stops in between. Delays build up from all of this and are shown in the dashboard. They are simulated, not live.
 - **Route diagram:** while following a bus, a schematic of its whole line appears, with the outbound direction down the left and the return direction up the right. It shows every stop by name (stop names come from the GTFS feed), the passengers waiting at each stop, and every bus on the line; click one to follow it.
-- **Passengers are simulated with assumed demand** (there is no ridership data). They arrive at stops at a rate that follows the rush hours and is higher at stops served by several lines and at stations. They board the next bus, which makes stops take longer, and get off along the way.
+- **Passengers are simulated with assumed demand** (there is no ridership data). They arrive at stops at a rate that follows the rush hours and is higher at stops served by several lines and at stations. They board the next bus if there's room (80 places), which makes stops take longer, and get off along the way.
+- **Departure boards:** click any stop for the next hour's departures of every bus and train line there. Times come from the timetable, and buses already on their way show their (simulated) delay; click one to follow it. The board also shows the passengers waiting and anyone left behind by a full bus.
 - Trains keep exactly to the timetable.
 
 ![Following an R-net 320 bus in Huizen, with the route diagram of the whole line](docs/screenshot-follow-bus.png)
 
 ![Huizen at dusk, with an R-net bus](docs/screenshot-huizen-dusk.png)
+
+### On phones
+
+Panels move into a dock at the bottom: the simulation controls with tabs for *Stats*, *Roads* and *Layers*, plus *Stop* and *Route* when a stop or bus is open. Tapping a tab opens it as a sheet above the controls.
 
 ### Keyboard shortcuts
 
@@ -133,8 +144,8 @@ src/
   features/scenarios/   road edits: scenario network, map layers, editing tools
   features/scenery/     trees and street lights: data, 3D models and layer
   hooks/ store/ types/ utils/ data/
-public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json (generated, committed)
-scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, osm-common.mjs
+public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json, gooi-demand.json (generated, committed)
+scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, fetch-demand.mjs, osm-common.mjs
 ```
 
 - **Data build (offline).** `scripts/fetch-osm.mjs` downloads all streets and paths in the Gooi from the Overpass API. It splits them at junctions, works out car, bike and foot access in each direction, and keeps each mode's connected network. Roads leaving the area stay connected through a virtual "outside world" node, so through traffic works. It also extracts bus and train route relations, stitching their ways into continuous lines and projecting the stops onto them. `scripts/fetch-timetables.mjs` then streams the national GTFS feed. It matches every trip serving the Gooi to its OSM route variant by line number or train series, stop positions and stop order, and stores the trip's stop times. The outputs are compact (≈1 MB gzipped together) and are committed.
@@ -152,22 +163,26 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, 
 | Basemap: roads, buildings, water, land use, labels | [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, via [OpenMapTiles](https://openmaptiles.org/) vector tiles hosted by [OpenFreeMap](https://openfreemap.org/) | ODbL; OpenMapTiles schema CC-BY |
 | Street network, bus and train routes and stops | OpenStreetMap contributors, via the [Overpass API](https://overpass-api.de/) | ODbL 1.0 |
 | Trees, forests, street lamps | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-scenery.mjs`) | ODbL 1.0 |
+| Population and businesses per neighbourhood | [CBS Kerncijfers wijken en buurten 2024](https://www.cbs.nl/), via PDOK (`scripts/fetch-demand.mjs`) | CC BY 4.0 |
+| Aerial photos | [PDOK Luchtfoto](https://www.pdok.nl/) (Beeldmateriaal Nederland) | CC BY 4.0 |
+| Live weather | [Open-Meteo](https://open-meteo.com/) (only the Gooi's fixed coordinates are sent) | CC BY 4.0 |
 | Bus and train timetables | [OVapi GTFS](https://gtfs.ovapi.nl/) (Stichting OpenGeo), from NDOV Loket open data | CC0 1.0 |
 | Address and place search | [PDOK Locatieserver](https://www.pdok.nl/) (Kadaster) | Dutch government open data |
 
-OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage reasonable. The data scripts identify themselves and cache downloads in `scripts/.cache/` (git-ignored).
+OpenFreeMap, Overpass, OVapi, PDOK and Open-Meteo are free public services, so keep usage reasonable. The data scripts identify themselves and cache downloads in `scripts/.cache/` (git-ignored).
 
 ## Known limitations
 
 - **All traffic is simulated.** Car, bike and pedestrian numbers, speeds, journey times, delays and emissions come from a simplified model with assumed demand. They are not observations or predictions of real traffic.
-- Buses and trains follow real timetables for one representative weekday (shown in the dashboard), but there is no live data: positions between stops are interpolated, and delays are not modelled. Transit vehicles don't interact with road traffic.
+- Buses and trains follow real timetables for one representative weekday (shown in the dashboard), but there is no live data.
 - No traffic lights, lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other.
-- Bus passengers are simulated with assumed demand; there is no ridership data. Buses have no capacity limit. Bus stretches without a matching simulated street (such as dedicated busways) are driven freely. Bus delays are simulated and don't reflect real punctuality. Trains don't interact with anything.
+- Bus passengers are simulated with assumed demand; there is no ridership data. Bus stretches without a matching simulated street (such as dedicated busways) are driven freely. Bus delays are simulated and don't reflect real punctuality. Trains don't interact with anything.
 - The before/after comparison runs both versions with the same demand, so it shows rerouting and congestion effects, not changes in how people choose to travel. While a comparison is running the simulation does twice the work, so at 60× the clock can run slower than requested.
 - Pedestrians are only simulated around a street-level view (zoom 15+).
 - Road changes work per street segment (junction to junction), and only the model reacts to them: buses keep their timetable, and the demand doesn't change (no one decides to cycle because a road was closed). New cycle paths are straight lines between the points you click and don't cross other streets at grade. Changes are not saved when the page is reloaded.
 - CO₂ is a rough estimate (cars only, 150 g/km).
-- Agents are drawn larger than true scale (1.5× at street level, more when zoomed out) so they stay visible, so they can look crowded in queues.
+- Road vehicles are drawn up to about 1.5× life size (less for long vehicles), the most that still fits their real spacing; people are enlarged more when zoomed out.
+- Trip demand uses CBS population and business counts as weights; the trip rates, rush-hour profiles and the 15% leaving the region are assumptions. Weather effects on travel are assumed too. Live weather is the current weather, even when the simulated clock shows another time.
 - Building heights are approximate where OSM has no height data.
 - **Scenery is partly illustrative.** Mapped trees and tree rows are at their OSM positions (OSM covers only some street trees), but trees inside forests are placed on a jittered grid within the real outlines. Only about 150 street lamps are mapped in OSM; the rest are placed every 24–40 m along streets tagged as lit, or, without a tag, along urban streets with a limit of 50 km/h or less. Real lamp positions, heights and spacing differ. Trees and lamps are drawn from zoom 14 and 15.
 
@@ -177,14 +192,16 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 - [x] Milestone 2: multimodal simulation, real transit routes and timetables, day/night
 - [x] Milestone 3a: road closures, speed limits, car-free, pedestrian and bus-only streets, new cycle paths, with rerouting and restore
 - [x] Before/after comparison, buses in traffic, following vehicles, route diagrams with simulated passengers
-- [ ] Next: saving and sharing scenarios in the link, housing developments
+- [x] Demand from CBS neighbourhood data, congestion map, departure boards and bus capacity, weather and seasons, aerial photos, phone layout
+- [ ] Next: housing developments
 
 ## Refreshing the data
 
 ```bash
-npm run data            # streets, transit routes, timetables, then trees and lights (uses cached downloads)
+npm run data            # streets, transit routes, timetables, trees and lights, then neighbourhood figures (uses cached downloads)
 node scripts/fetch-osm.mjs --refresh          # force fresh OSM data
 node scripts/fetch-scenery.mjs --refresh      # force fresh trees, forests and lamps
+node scripts/fetch-demand.mjs --refresh       # force fresh CBS neighbourhood figures
 node scripts/fetch-timetables.mjs --refresh   # force a fresh GTFS feed (~240 MB)
 node scripts/fetch-timetables.mjs --date 20261104   # use another service day
 ```

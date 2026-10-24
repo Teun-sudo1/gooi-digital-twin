@@ -1,4 +1,5 @@
 import { MercatorCoordinate, type CustomLayerInterface, type CustomRenderMethodInput, type Map as MapLibreMap } from 'maplibre-gl'
+import { mixHex, type Season } from '../environment/environment'
 import { CELL, type Scenery, type SceneryItem } from './sceneryData'
 import { buildSceneryModels, SCENERY_VERTEX_FLOATS, SceneryMesh } from './sceneryModels'
 
@@ -19,8 +20,14 @@ const MAX_LAMPS = 12_000
 /** Time per frame spent generating forest cells. */
 const GENERATE_BUDGET_MS = 6
 
-const BROADLEAF = ['#4f7a38', '#5a8a3e', '#6a9444', '#46703a', '#77984a', '#5f8040'].map(rgb)
-const CONIFER = ['#2f5636', '#35603b', '#2a4c31', '#3c6440'].map(rgb)
+/** Broadleaf crowns through the year: fresh green with some blossom, green, autumn colours, bare twigs. */
+const BROADLEAF: Record<Season, string[]> = {
+  spring: ['#7fb34f', '#8cc152', '#6fa845', '#9ccc65', '#78a84a', '#eec3d0'],
+  summer: ['#4f7a38', '#5a8a3e', '#6a9444', '#46703a', '#77984a', '#5f8040'],
+  autumn: ['#c98a2b', '#d9a336', '#b5651d', '#9c3d1f', '#7a8a3a', '#cf7a2c', '#a8742a'],
+  winter: ['#7a6a5c', '#86776a', '#6f6155', '#8a7d70'],
+}
+const CONIFER = ['#2f5636', '#35603b', '#2a4c31', '#3c6440']
 
 function rgb(hex: string): [number, number, number] {
   const n = Number.parseInt(hex.slice(1), 16)
@@ -117,6 +124,8 @@ export class SceneryLayer implements CustomLayerInterface {
   /** Cells currently uploaded, and whether some were still missing. */
   private cellKey = ''
   private incomplete = false
+  private broadleaf = BROADLEAF.summer.map(rgb)
+  private conifer = CONIFER.map(rgb)
 
   constructor(scenery: Scenery) {
     this.scenery = scenery
@@ -127,6 +136,14 @@ export class SceneryLayer implements CustomLayerInterface {
 
   setNight(night: number) {
     this.night = night
+    this.map?.triggerRepaint()
+  }
+
+  /** Tree colours for the season; snow lies on the conifers. */
+  setAppearance(season: Season, snow: boolean) {
+    this.broadleaf = BROADLEAF[season].map((c) => rgb(snow ? mixHex(c, '#f2f4f7', 0.45) : c))
+    this.conifer = CONIFER.map((c) => rgb(snow ? mixHex(c, '#f2f4f7', 0.4) : c))
+    this.cellKey = ''
     this.map?.triggerRepaint()
   }
 
@@ -257,7 +274,7 @@ export class SceneryLayer implements CustomLayerInterface {
             data[w + 3] = 1
             data[w + 4] = data[w + 5] = data[w + 6] = 0
           } else {
-            const palette = mesh === SceneryMesh.Spruce || mesh === SceneryMesh.Pine ? CONIFER : BROADLEAF
+            const palette = mesh === SceneryMesh.Spruce || mesh === SceneryMesh.Pine ? this.conifer : this.broadleaf
             const colour = palette[Math.floor(item.seed * 977) % palette.length]
             data[w + 2] = item.seed * Math.PI * 2
             data[w + 3] = item.size

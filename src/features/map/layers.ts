@@ -4,6 +4,7 @@ import type { LayerGroup, LayerGroupId } from '../../types/geo'
 /** User-facing layer toggles, each mapped onto the style layers in style.ts. */
 export const LAYER_GROUPS: LayerGroup[] = [
   { id: 'traffic', label: 'Cars, bikes & pedestrians', layerIds: ['sim-agents', 'sim-headlights'] },
+  { id: 'congestion', label: 'Congestion', layerIds: ['congestion'] },
   { id: 'transit', label: 'Buses & trains', layerIds: ['sim-transit', 'sim-trains', 'sim-bus-labels'] },
   // Only the map display of routes and stops; buses and trains keep running either way.
   { id: 'transitRoutes', label: 'Transit routes & stops', layerIds: ['transit-routes', 'transit-stops'] },
@@ -53,15 +54,35 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   transitRoutes: true,
   trees: true,
   streetLights: true,
+  congestion: true,
 }
 
-export function applyVisibility(map: MapLibreMap, visibility: LayerVisibility) {
+/** Groups the aerial photos replace: drawing them would cover the photo. */
+const COVERED_BY_AERIAL = new Set<LayerGroupId>(['water', 'green', 'landuse'])
+
+export type Basemap = 'map' | 'aerial'
+
+export function applyVisibility(map: MapLibreMap, visibility: LayerVisibility, basemap: Basemap = 'map') {
+  const aerial = basemap === 'aerial'
+  if (map.getLayer('aerial')) map.setLayoutProperty('aerial', 'visibility', aerial ? 'visible' : 'none')
   for (const group of LAYER_GROUPS) {
-    const value = visibility[group.id] ? 'visible' : 'none'
+    const value = visibility[group.id] && !(aerial && COVERED_BY_AERIAL.has(group.id)) ? 'visible' : 'none'
     for (const layerId of group.layerIds) {
       if (map.getLayer(layerId) && map.getLayoutProperty(layerId, 'visibility') !== value) {
         map.setLayoutProperty(layerId, 'visibility', value)
       }
     }
+  }
+}
+
+/** Roads are drawn lighter over aerial photos, so the photo shows through. */
+const roadOpacity = new Map<string, unknown>()
+
+export function applyBasemapStyle(map: MapLibreMap, basemap: Basemap) {
+  for (const id of LAYER_GROUPS.find((g) => g.id === 'roads')!.layerIds) {
+    if (!map.getLayer(id)) continue
+    if (!roadOpacity.has(id)) roadOpacity.set(id, map.getPaintProperty(id, 'line-opacity') ?? 1)
+    const original = roadOpacity.get(id) as number
+    map.setPaintProperty(id, 'line-opacity', basemap === 'aerial' ? original * 0.45 : original)
   }
 }

@@ -177,9 +177,14 @@ const roadClass = (...classes: string[]): ExpressionSpecification => [
 
 const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel']
 
+/** Raster source and layer id for the aerial photo basemap. */
+export const AERIAL = 'aerial'
+
 function buildLayers(color: Palette): LayerSpecification[] {
   return [
     { id: 'background', type: 'background', paint: { 'background-color': color.background } },
+    // Aerial photos (shown instead of the drawn land, water and green when chosen).
+    { id: AERIAL, type: 'raster', source: AERIAL, layout: { visibility: 'none' }, paint: { 'raster-fade-duration': 150 } },
 
     // Land use and green space
     {
@@ -516,6 +521,15 @@ export function buildStyle(palette: Palette): StyleSpecification {
           '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · ' +
           '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> · ' +
           '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
+      },
+      [AERIAL]: {
+        type: 'raster',
+        // PDOK Luchtfoto: the latest national aerial photography, open data.
+        tiles: ['https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg'],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution:
+          'Aerial photos: <a href="https://www.pdok.nl/" target="_blank" rel="noopener">PDOK Luchtfoto</a> (Beeldmateriaal Nederland, CC BY 4.0)',
       },
       [SEARCH_SOURCE]: {
         type: 'geojson',

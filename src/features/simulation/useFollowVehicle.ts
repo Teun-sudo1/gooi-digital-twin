@@ -30,8 +30,27 @@ export function useFollowVehicle() {
     const vehicleAt = (event: MapMouseEvent) =>
       controller.pickVehicle([event.lngLat.lng, event.lngLat.lat], radiusAt(event.point))
 
+    /** A transit stop right under the pointer. */
+    const stopAt = (event: MapMouseEvent) => {
+      if (!map.getLayer('transit-stops')) return null
+      const { x, y } = event.point
+      const hit = map.queryRenderedFeatures(
+        [
+          [x - 6, y - 6],
+          [x + 6, y + 6],
+        ],
+        { layers: ['transit-stops'] },
+      )[0]
+      return hit ? { line: Number(hit.properties.l), stop: Number(hit.properties.s) } : null
+    }
+
     const onClick = (event: MapMouseEvent) => {
       if (useScenarioStore.getState().tool) return
+      const stop = stopAt(event)
+      if (stop) {
+        controller.openStop(stop)
+        return
+      }
       const id = vehicleAt(event)
       if (id !== null) {
         useSimulationStore.setState({ followGone: false })
@@ -41,7 +60,7 @@ export function useFollowVehicle() {
     const onMove = (event: MapMouseEvent) => {
       if (useScenarioStore.getState().tool || event.originalEvent.timeStamp - lastMove < 80) return
       lastMove = event.originalEvent.timeStamp
-      const over = vehicleAt(event) !== null
+      const over = stopAt(event) !== null || vehicleAt(event) !== null
       if (over !== hovering) {
         hovering = over
         canvas.style.cursor = over ? 'pointer' : ''

@@ -139,15 +139,33 @@ function exaggeration(zoom: number) {
   return Math.min(7, Math.max(1.5, 1.5 * 2 ** ((17 - zoom) * 0.65)))
 }
 
+/**
+ * Largest scale at which a road vehicle still fits its simulated spacing: the
+ * gap kept in a queue (about 2.5 m) and the 3.4 m between opposite lanes.
+ * Beyond it, enlarged vehicles would visibly run into each other.
+ */
+const FIT: Partial<Record<number, number>> = {
+  [Kind.Hatchback]: 1.55,
+  [Kind.Sedan]: 1.45,
+  [Kind.Suv]: 1.45,
+  [Kind.Van]: 1.4,
+  [Kind.Truck]: 1.2,
+  [Kind.Bus]: 1.15,
+  [Kind.Bike]: 1.6,
+}
+
 function kindScale(kind: number, k: number): [number, number, number] {
   if (kind === Kind.TrainCar) {
     const w = Math.min(k, 1.6)
     return [w, 1, w]
   }
-  if (kind === Kind.Bus) return [k * 0.85, k * 0.85, k * 0.85]
+  const fit = FIT[kind]
+  if (fit !== undefined) {
+    const s = Math.min(k, fit)
+    return [s, s, s]
+  }
   // People: noticeably larger than life, but not towering over the cars at street level.
   if (kind === Kind.Pedestrian) return [k * 0.9, k * 0.9, k * 0.9]
-  if (kind === Kind.Bike) return [k, k, k]
   return [k, k, k]
 }
 

@@ -1,6 +1,6 @@
 import { useSimulationStore } from '../store/useSimulationStore'
 import { Kind, type FollowInfo, type TransitLineInfo } from '../types/simulation'
-import { formatClock, formatDecimal, shortName } from '../utils/format'
+import { badgeStyle, formatClock, formatDecimal, shortName } from '../utils/format'
 
 const VEHICLE_NAMES: Record<number, string> = {
   [Kind.Hatchback]: 'Hatchback',
@@ -19,7 +19,7 @@ function delayText(minutes: number) {
 
 function LineBadge({ line }: { line: TransitLineInfo }) {
   return (
-    <span className="line-badge" style={{ background: line.colour }}>
+    <span className="line-badge" style={badgeStyle(line.colour)}>
       {line.mode === 'train' ? (Number(line.ref) < 3000 || /^IC/.test(line.ref) ? 'IC' : 'SPR') : line.ref}
     </span>
   )
@@ -56,7 +56,8 @@ function Details({ info, lines }: { info: FollowInfo; lines: TransitLineInfo[] }
   }
   const line = lines[info.line]
   if (!line) return null
-  const status = info.detour ? 'On a diversion around a closed road' : info.delayMinutes >= 3 ? 'Running late' : null
+  const full = info.capacity !== null && info.onBoard !== null && info.onBoard >= info.capacity
+  const status = info.detour ? 'On a diversion around a closed road' : full ? 'Full: passengers are left behind' : info.delayMinutes >= 3 ? 'Running late' : null
   return (
     <>
       <div className="follow-title">
@@ -82,7 +83,10 @@ function Details({ info, lines }: { info: FollowInfo; lines: TransitLineInfo[] }
         {info.onBoard !== null && (
           <div title="Simulated from assumed demand">
             <dt>On board</dt>
-            <dd>{info.onBoard}</dd>
+            <dd>
+              {info.onBoard}
+              {info.capacity !== null && <small> / {info.capacity}</small>}
+            </dd>
           </div>
         )}
       </dl>

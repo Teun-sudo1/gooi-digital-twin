@@ -3,6 +3,7 @@ import {
   AGENT_STRIDE,
   type Comparison,
   type ComparisonSide,
+  type DemandFile,
   type FollowInfo,
   type FromWorker,
   type Intervention,
@@ -11,6 +12,7 @@ import {
   type ToWorker,
   type TransitFile,
   type Viewport,
+  type WeatherEffects,
 } from '../../types/simulation'
 import {
   buildScenarioNetwork,
@@ -42,6 +44,11 @@ const TICK_MS = 33
 const MAX_SUBSTEP = 0.5
 const STATS_INTERVAL = 250
 const COMPARISON_INTERVAL = 1500
+const CONGESTION_INTERVAL = 1000
+/** Car-seconds on a street before its congestion is shown (a lone waiting car isn't a jam). */
+const CONGESTION_MIN_TIME = 15
+/** Simulated seconds a street keeps its colour after its last car. */
+const CONGESTION_MEMORY = 300
 const MAX_STREET_CHANGES = 400
 
 interface Run {
@@ -60,13 +67,22 @@ let playing = true
 let speed = 5
 let viewport: Viewport | null = null
 let follow: number | null = null
+/** Applied to models created later too (the comparison copy). */
+let weather: WeatherEffects | null = null
+/** The stop whose departure board is open. */
+let board: { line: number; stop: number } | null = null
 let awaitingAck = false
 /** Latest requested time of day; applied once per tick so a dragged slider doesn't queue up jumps. */
 let pendingClock: number | null = null
 let lastTick = 0
 let lastStats = 0
 let lastComparison = 0
+let lastCongestion = 0
 const sentGeometry = new Set<number>()
+const sentCongestionGeometry = new Set<number>()
+/** Smoothed congestion level and last time with traffic, per segment. */
+let congestionLevel = new Float32Array(0)
+let congestionSeen = new Float32Array(0)
 const agentBuffer = new Float32Array(AGENT_STRIDE * 25_000)
 const transitBuffer = new Float32Array(AGENT_STRIDE * 2_000)
 
@@ -130,6 +146,11 @@ function tick() {
         stats: { ...traffic.stats(), ...transit.counts, ...buses, buses: transit.counts.buses + buses.buses },
       })
       if (follow !== null) post({ type: 'follow', id: follow, info: inspect(follow) })
+      if (board) post({ type: 'board', board: fleet.board(board.line, board.stop, traffic.clock) })
+    }
+    if (started - lastCongestion > CONGESTION_INTERVAL) {
+      lastCongestion = started
+      reportCongestion()
     }
     if (baseline && started - lastComparison > COMPARISON_INTERVAL) {
       lastComparison = started
@@ -137,6 +158,51 @@ function tick() {
     }
   }
   setTimeout(tick, Math.max(0, TICK_MS - (performance.now() - started)))
+}
+
+function segmentCoordinates(net: Network, segment: number) {
+  const coordinates: [number, number][] = []
+  for (let k = net.geomStart[segment]; k < net.geomStart[segment + 1]; k++) {
+    const [lng, lat] = toLngLat(net.projection, net.geomX[k], net.geomY[k])
+    coordinates.push([Math.round(lng * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6])
+  }
+  return coordinates
+}
+
+/** Sends the congestion level of every street with recent car traffic. */
+function reportCongestion() {
+  if (!main || !scenario) return
+  const { traffic } = main
+  const count = Math.min(traffic.carTime.length, scenario.baseSegments)
+  if (congestionLevel.length !== count) {
+    congestionLevel = new Float32Array(count).fill(-1)
+    congestionSeen = new Float32Array(count).fill(-Infinity)
+  }
+  const clock = traffic.clock
+  const segments: number[] = []
+  const levels: number[] = []
+  const geometry: { segment: number; coordinates: [number, number][] }[] = []
+  for (let s = 0; s < count; s++) {
+    const time = traffic.carTime[s]
+    if (time >= CONGESTION_MIN_TIME) {
+      const level = traffic.delayedTime[s] / time
+      congestionLevel[s] = congestionLevel[s] < 0 ? level : congestionLevel[s] * 0.6 + level * 0.4
+      congestionSeen[s] = clock
+      traffic.carTime[s] = 0
+      traffic.delayedTime[s] = 0
+    }
+    const age = (clock - congestionSeen[s] + 86_400) % 86_400
+    if (congestionLevel[s] < 0 || age > CONGESTION_MEMORY) continue
+    segments.push(s)
+    levels.push(congestionLevel[s])
+    if (!sentCongestionGeometry.has(s)) {
+      sentCongestionGeometry.add(s)
+      geometry.push({ segment: s, coordinates: segmentCoordinates(scenario.net, s) })
+    }
+  }
+  const segmentArray = Int32Array.from(segments)
+  const levelArray = Float32Array.from(levels)
+  post({ type: 'congestion', segments: segmentArray, levels: levelArray, geometry }, [segmentArray.buffer, levelArray.buffer])
 }
 
 function inspect(id: number): FollowInfo | null {
@@ -182,12 +248,7 @@ function compare(): Comparison | null {
   for (const street of streets) {
     if (sentGeometry.has(street.segment)) continue
     sentGeometry.add(street.segment)
-    const coordinates: [number, number][] = []
-    for (let k = net.geomStart[street.segment]; k < net.geomStart[street.segment + 1]; k++) {
-      const [lng, lat] = toLngLat(net.projection, net.geomX[k], net.geomY[k])
-      coordinates.push([Math.round(lng * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6])
-    }
-    street.coordinates = coordinates
+    street.coordinates = segmentCoordinates(net, street.segment)
   }
   return {
     minutes: a.seconds / 60,
@@ -199,16 +260,19 @@ function compare(): Comparison | null {
 
 async function init(message: Extract<ToWorker, { type: 'init' }>) {
   try {
-    const [file, transitFile] = await Promise.all([
+    const [file, transitFile, demand] = await Promise.all([
       fetchJson<NetworkFile>(message.networkUrl),
       fetchJson<TransitFile>(message.transitUrl),
+      // Without neighbourhood figures, trips are spread evenly.
+      fetchJson<DemandFile>(message.demandUrl).catch(() => null),
     ])
     networkFile = file
     scenario = buildScenarioNetwork(file, [])
     originalNet = scenario.net
     transit = new TransitModel(transitFile)
-    const traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now() })
+    const traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now(), demand })
     traffic.viewport = viewport
+    if (weather) traffic.weather = weather
     const fleet = new BusFleet(transit, matchLines(transit, scenario.net), traffic)
     main = { traffic, fleet }
     playing = message.playing
@@ -294,6 +358,15 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'pick':
       pick(message)
+      break
+    case 'weather':
+      if (main) for (const run of runs()) run.traffic.weather = { ...message.effects }
+      weather = { ...message.effects }
+      break
+    case 'stop':
+      board = message.line === null || !Number.isInteger(message.line) || !Number.isInteger(message.stop) ? null : { line: message.line, stop: message.stop }
+      if (!board) post({ type: 'board', board: null })
+      lastStats = 0
       break
     case 'follow':
       follow = typeof message.id === 'number' && Number.isFinite(message.id) ? message.id : null

@@ -3,8 +3,10 @@ import {
   AgentFlag,
   Kind,
   Mode,
+  type DemandFile,
   type FollowInfo,
   type Viewport,
+  type WeatherEffects,
 } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute, TreeCache, type Route } from './routing'
@@ -15,7 +17,9 @@ import { findRoute, TreeCache, type Route } from './routing'
  * number it produces is SIMULATED.
  *
  * - Demand follows stylised weekday profiles per mode, scaled by a density
- *   setting. Morning car and bike trips run mostly from residential streets
+ *   setting. Trips start at homes in proportion to each neighbourhood's
+ *   population and go to destinations in proportion to its business
+ *   establishments (CBS figures), when that data is loaded. Morning car and bike trips run mostly from residential streets
  *   to destination zones (town centres, through roads, the region's edges);
  *   evening trips run back. ~18% of car trips are through traffic.
  * - Routes are the fastest free-flow paths per mode. Trips end or start in
@@ -73,11 +77,17 @@ const HEADWAY = 1.3
 const BIKE_HEADWAY = 0.7
 const COMFORT_DECEL = 2.2
 const MAX_DECEL = 7
+/** Braking assumed when keeping a safe distance to the vehicle in front. */
+const SAFE_DECEL = 3
 const DELAY_SHARE = 0.4
 const DELAY_AFTER = 10
 const STUCK_LIMIT = 180
 const CONFLICT_DISTANCE = 35
 const YIELD_LOOKAHEAD = 40
+/** How far (m) along its route a vehicle looks for the vehicle in front. */
+const LOOKAHEAD = 80
+/** Distance (m) before a junction from which vehicles merging into the same street take turns. */
+const MERGE_LOOKAHEAD = 50
 const EQUAL_PATIENCE = 6
 const MINOR_PATIENCE = 45
 /** Grid size (m) for destination zones. */
@@ -178,6 +188,115 @@ interface Zones {
   gateways: number[]
   /** Junctions on residential streets: typical homes. */
   homes: number[]
+  /** Cumulative weights for picking homes and destination zones (null = uniform). */
+  homeWeights: Float64Array | null
+  zoneWeights: Float64Array | null
+}
+
+/** Share of destination weight that lies outside the region (commuting to Amsterdam, Utrecht, …). */
+const EXTERNAL_SHARE = 0.15
+/** Visits (friends, schools, local shops) as destination weight per inhabitant, next to businesses. */
+const VISITS_PER_INHABITANT = 0.1
+
+/** Neighbourhood lookup for points in local metres. */
+function areaIndex(demand: DemandFile) {
+  const areas = demand.areas.map((a) => {
+    const rings = a.rings.map((encoded) => {
+      const ring = new Float64Array(encoded.length)
+      let x = 0
+      let y = 0
+      for (let i = 0; i < encoded.length; i += 2) {
+        x += encoded[i]
+        y += encoded[i + 1]
+        ring[i] = x
+        ring[i + 1] = y
+      }
+      return ring
+    })
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i += 2) {
+        minX = Math.min(minX, r[i])
+        maxX = Math.max(maxX, r[i])
+        minY = Math.min(minY, r[i + 1])
+        maxY = Math.max(maxY, r[i + 1])
+      }
+    }
+    return { rings, minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 }
+  })
+  const inside = (r: Float64Array, x: number, y: number) => {
+    let hit = false
+    const n = r.length / 2
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const yi = r[2 * i + 1]
+      const yj = r[2 * j + 1]
+      if (yi > y !== yj > y && x < ((r[2 * j] - r[2 * i]) * (y - yi)) / (yj - yi) + r[2 * i]) hit = !hit
+    }
+    return hit
+  }
+  return {
+    areas,
+    find(x: number, y: number) {
+      return areas.findIndex((a) => x >= a.minX && x <= a.maxX && y >= a.minY && y <= a.maxY && a.rings.some((r) => inside(r, x, y)))
+    },
+  }
+}
+
+const cumulative = (weights: number[]) => {
+  const out = new Float64Array(weights.length)
+  let sum = 0
+  weights.forEach((w, i) => (out[i] = sum += Math.max(0, w)))
+  return sum > 0 ? out : null
+}
+
+/** Weights homes by population and destinations by businesses (plus visits and trips leaving the region). */
+function weighZones(net: Network, zones: Zones, demand: DemandFile) {
+  const index = areaIndex(demand)
+  const areaOf = (node: number) => index.find(net.nodeX[node], net.nodeY[node])
+  const { areas } = demand
+
+  const homeArea = zones.homes.map(areaOf)
+  const homesIn = new Array<number>(areas.length).fill(0)
+  for (const a of homeArea) if (a >= 0) homesIn[a]++
+  const homeWeights = homeArea.map((a) => (a >= 0 ? areas[a].population / homesIn[a] : 0))
+  const meanHome = homeWeights.reduce((s, w) => s + w, 0) / Math.max(1, homeWeights.length)
+  // Homes just outside the mapped neighbourhoods still get some trips.
+  zones.homeWeights = cumulative(homeWeights.map((w, i) => (homeArea[i] < 0 ? meanHome * 0.2 : w)))
+
+  const inner = zones.zones.length - zones.gateways.length
+  const zoneArea = zones.zones.slice(0, inner).map(areaOf)
+  const zonesIn = new Array<number>(areas.length).fill(0)
+  for (const a of zoneArea) if (a >= 0) zonesIn[a]++
+  const weights = new Array<number>(zones.zones.length).fill(0)
+  areas.forEach((area, a) => {
+    const attraction = area.businesses + VISITS_PER_INHABITANT * area.population
+    if (zonesIn[a]) {
+      zoneArea.forEach((z, i) => {
+        if (z === a) weights[i] += attraction / zonesIn[a]
+      })
+    } else if (inner) {
+      // No destination zone inside: the nearest one serves it.
+      const { cx, cy } = index.areas[a]
+      let best = 0
+      let bestD = Infinity
+      for (let i = 0; i < inner; i++) {
+        const node = zones.zones[i]
+        const d = Math.hypot(net.nodeX[node] - cx, net.nodeY[node] - cy)
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+      weights[best] += attraction
+    }
+  })
+  const internal = weights.reduce((s, w) => s + w, 0)
+  const external = zones.gateways.length ? (internal * EXTERNAL_SHARE) / (1 - EXTERNAL_SHARE) / zones.gateways.length : 0
+  for (let i = inner; i < zones.zones.length; i++) weights[i] = external
+  zones.zoneWeights = cumulative(weights)
 }
 
 function buildZones(net: Network, mode: Mode): Zones {
@@ -227,7 +346,7 @@ function buildZones(net: Network, mode: Mode): Zones {
     const best = cells.get(key)
     if (!best || score > best.score) cells.set(key, { node: i, score })
   }
-  return { zones: [...[...cells.values()].map((c) => c.node), ...gateways], gateways, homes }
+  return { zones: [...[...cells.values()].map((c) => c.node), ...gateways], gateways, homes, homeWeights: null, zoneWeights: null }
 }
 
 export interface TrafficOptions {
@@ -237,6 +356,8 @@ export interface TrafficOptions {
   seed?: number
   /** Path trees kept in memory per simulation. */
   treeCapacity?: number
+  /** Neighbourhood figures that weight where trips start and end. */
+  demand?: DemandFile | null
 }
 
 export class TrafficModel {
@@ -245,9 +366,14 @@ export class TrafficModel {
   density: number
   agents: Agent[] = []
   viewport: Viewport | null = null
+  /** How the weather changes demand and speeds (1 = dry). */
+  weather: WeatherEffects = { carDemand: 1, bikeDemand: 1, carSpeed: 1, bikeSpeed: 1, busDemand: 1 }
   /** Vehicles moved by other models (buses) that cars queue behind. Set before each step. */
   externals: Agent[] = []
   measures: Measures
+  /** Car-seconds and delayed car-seconds per street segment since the last congestion report. */
+  carTime: Float32Array
+  delayedTime: Float32Array
 
   private random: () => number
   private nextId = 1
@@ -259,6 +385,7 @@ export class TrafficModel {
   private stranded = 0
   private zones: [Zones, Zones]
   private footNodes: Int32Array
+  private demand: DemandFile | null
   private carKm = 0
   private bikeKm = 0
   private journeys: number[] = []
@@ -273,6 +400,8 @@ export class TrafficModel {
     this.treeCapacity = options.treeCapacity ?? 300
     this.trees = new TreeCache(net, this.treeCapacity)
     this.zones = [buildZones(net, Mode.Car), buildZones(net, Mode.Bike)]
+    this.demand = options.demand ?? null
+    if (this.demand) for (const zones of this.zones) weighZones(net, zones, this.demand)
     const foot: number[] = []
     for (let i = 0; i < net.nodeCount; i++) {
       for (let k = net.outStart[i]; k < net.outStart[i + 1]; k++) {
@@ -284,6 +413,10 @@ export class TrafficModel {
     }
     this.footNodes = Int32Array.from(foot)
     this.measures = this.emptyMeasures()
+    this.carTime = new Float32Array(net.segmentCount)
+    this.delayedTime = new Float32Array(net.segmentCount)
+    this.carTime = new Float32Array(net.segmentCount)
+    this.delayedTime = new Float32Array(net.segmentCount)
   }
 
   private emptyMeasures(): Measures {
@@ -299,8 +432,9 @@ export class TrafficModel {
    * for running the original network alongside a scenario.
    */
   fork(net: Network, seed: number): TrafficModel {
-    const copy = new TrafficModel(net, { density: this.density, startClock: this.clock, seed, treeCapacity: this.treeCapacity })
+    const copy = new TrafficModel(net, { density: this.density, startClock: this.clock, seed, treeCapacity: this.treeCapacity, demand: this.demand })
     copy.nextId = this.nextId
+    copy.weather = this.weather
     copy.agents = this.agents.filter((a) => a.mode !== Mode.Foot).map((a) => ({ ...a }))
     return copy
   }
@@ -310,8 +444,9 @@ export class TrafficModel {
   }
 
   target(mode: Mode) {
-    if (mode === Mode.Car) return Math.round(this.density * profileAt(CAR_PROFILE, this.clock))
-    if (mode === Mode.Bike) return Math.round(this.density * BIKES_PER_CAR * profileAt(BIKE_PROFILE, this.clock))
+    const w = this.weather
+    if (mode === Mode.Car) return Math.round(this.density * w.carDemand * profileAt(CAR_PROFILE, this.clock))
+    if (mode === Mode.Bike) return Math.round(this.density * BIKES_PER_CAR * w.bikeDemand * profileAt(BIKE_PROFILE, this.clock))
     return this.pedestrianTarget()
   }
 
@@ -329,6 +464,7 @@ export class TrafficModel {
         if (this.spawn(mode, true, treesPerMode)) count++
       }
     }
+    this.removeOverlaps()
   }
 
   /**
@@ -456,7 +592,21 @@ export class TrafficModel {
     if (hour >= 6 && hour < 10) toZone = r2 < 0.8
     else if (hour >= 15 && hour < 19) toZone = r2 < 0.2
     else toZone = r2 < 0.5
-    return { origin: this.pick(z.homes), zone: this.pick(z.zones), toZone }
+    return { origin: this.pickWeighted(z.homes, z.homeWeights), zone: this.pickWeighted(z.zones, z.zoneWeights), toZone }
+  }
+
+  /** A random item, in proportion to its weight when cumulative weights are given. */
+  private pickWeighted(list: number[], cumulativeWeights: Float64Array | null): number {
+    if (!cumulativeWeights) return this.pick(list)
+    const r = this.random() * cumulativeWeights[cumulativeWeights.length - 1]
+    let lo = 0
+    let hi = cumulativeWeights.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (cumulativeWeights[mid] < r) lo = mid + 1
+      else hi = mid
+    }
+    return list[lo]
   }
 
   private route(mode: Mode, home: number, zone: number, toZone: boolean, treeBudget: number): Route | null {
@@ -476,10 +626,49 @@ export class TrafficModel {
       if (mode === Mode.Bike && distance > 7000) continue
       const route = this.route(mode, a, b, trip.toZone, treeBudget)
       if (!route) continue
+      // Don't appear on top of someone already at the start of the route.
+      if (!midTrip && !this.roomAtStart(mode, route.edges[0])) continue
       this.launch(mode, route, midTrip, trip.toZone)
+      if (!midTrip) {
+        // Count it straight away, so a second car doesn't appear on top of it this step.
+        const key = route.edges[0] * 2 + mode
+        const list = this.occupancy.get(key)
+        const agent = this.agents[this.agents.length - 1]
+        if (list) list.unshift(agent)
+        else this.occupancy.set(key, [agent])
+      }
       return true
     }
     return false
+  }
+
+  private roomAtStart(mode: Mode, edge: number) {
+    const first = this.occupancy.get(edge * 2 + mode)?.[0]
+    return !first || first.offset - first.length > (mode === Mode.Car ? 6 + MIN_GAP : 2.5)
+  }
+
+  /** Removes cars and bikes placed overlapping another (after filling the map at once). */
+  private removeOverlaps() {
+    const byEdge = new Map<number, Agent[]>()
+    for (const a of this.agents) {
+      if (a.mode === Mode.Foot) continue
+      const key = a.edges[a.idx] * 2 + a.mode
+      const list = byEdge.get(key)
+      if (list) list.push(a)
+      else byEdge.set(key, [a])
+    }
+    const drop = new Set<Agent>()
+    for (const list of byEdge.values()) {
+      list.sort((p, q) => q.offset - p.offset)
+      let leader = list[0]
+      for (let i = 1; i < list.length; i++) {
+        const a = list[i]
+        const minGap = a.mode === Mode.Car ? MIN_GAP : 0.8
+        if (leader.offset - leader.length - a.offset < minGap) drop.add(a)
+        else leader = a
+      }
+    }
+    if (drop.size) this.agents = this.agents.filter((a) => !drop.has(a))
   }
 
   private launch(mode: Mode, route: Route, midTrip: boolean, destIsZone = false) {
@@ -554,10 +743,11 @@ export class TrafficModel {
 
   /** Preferred speed on an edge. */
   private cruise(mode: Mode, edge: number, desired: number, top: number) {
-    if (mode === Mode.Car) return Math.min(top, this.net.edgeSpeed[Mode.Car][edge] * desired)
+    if (mode === Mode.Car) return Math.min(top, this.net.edgeSpeed[Mode.Car][edge] * desired * this.weather.carSpeed)
     // Bikes and pedestrians scale their own pace by the street (paths and steps are slower).
     const reference = mode === Mode.Bike ? 4.9 : 1.35
-    return Math.min(top, desired * (this.net.edgeSpeed[mode][edge] / reference))
+    const weather = mode === Mode.Bike ? this.weather.bikeSpeed : 1
+    return Math.min(top, desired * weather * (this.net.edgeSpeed[mode][edge] / reference))
   }
 
   /** Where across the street an agent travels: Dutch traffic keeps right. */
@@ -710,14 +900,47 @@ export class TrafficModel {
         }
 
         let gap = Infinity
-        if (i + 1 < list.length) gap = list[i + 1].offset - a.offset - list[i + 1].length
-        else if (next >= 0) {
-          const ahead = occupancy.get(next * 2 + a.mode)
-          if (ahead?.length) gap = toEnd + ahead[0].offset - ahead[0].length
+        let leaderSpeed = 0
+        if (i + 1 < list.length) {
+          gap = list[i + 1].offset - a.offset - list[i + 1].length
+          leaderSpeed = list[i + 1].speed
+        }
+        else {
+          // Look past short junction pieces for the back of the queue ahead.
+          let distance = toEnd
+          for (let k = a.idx + 1; k < a.edges.length && distance < LOOKAHEAD; k++) {
+            const ahead = occupancy.get(a.edges[k] * 2 + a.mode)
+            if (ahead?.length) {
+              gap = distance + ahead[0].offset - ahead[0].length
+              leaderSpeed = ahead[0].speed
+              break
+            }
+            distance += edgeLength(net, a.edges[k])
+          }
+        }
+        // Zipper merge: a vehicle from another street that is closer to the junction
+        // and heading the same way goes first, so follow it in.
+        if (next >= 0 && toEnd < MERGE_LOOKAHEAD) {
+          const junction = net.edgeTo[edge]
+          for (let k = net.inStart[junction]; k < net.inStart[junction + 1]; k++) {
+            const other = net.inEdges[k]
+            if (other === edge) continue
+            const waiting = occupancy.get(other * 2 + a.mode)
+            const c = waiting?.[waiting.length - 1]
+            if (!c || c.external || c.idx + 1 >= c.edges.length || c.edges[c.idx + 1] !== next) continue
+            const theirs = edgeLength(net, other) - c.offset
+            const merge = toEnd - theirs - c.length
+            if ((theirs < toEnd || (theirs === toEnd && c.id < a.id)) && merge < gap) {
+              gap = merge
+              leaderSpeed = c.speed
+            }
+          }
         }
         if (gap < Infinity) {
           const minGap = isCar ? MIN_GAP : 0.8
           target = Math.min(target, Math.max(0, (gap - minGap) / (isCar ? HEADWAY : BIKE_HEADWAY)))
+          // Never faster than lets it stop behind the vehicle in front, should that brake.
+          target = Math.min(target, Math.sqrt(Math.max(0, leaderSpeed * leaderSpeed + 2 * SAFE_DECEL * (gap - minGap))))
         }
 
         const before = a.speed
@@ -731,6 +954,8 @@ export class TrafficModel {
     // Pedestrians: walk at their pace; leave when far outside the view.
     const view = this.viewport
     const survivors: Agent[] = []
+    // Who last turned onto each street this step, so two cars merging at once don't overlap.
+    const entered = new Map<number, Agent>()
     for (const a of this.agents) {
       if (a.mode === Mode.Foot) {
         a.speed = this.cruise(Mode.Foot, a.edges[a.idx], a.desired, a.top)
@@ -743,6 +968,11 @@ export class TrafficModel {
         measures.carKm += travelled / 1000
         measures.carSeconds += dt
         if (a.slowFor > DELAY_AFTER) measures.delayedCarSeconds += dt
+        const seg = net.edgeSeg[a.edges[a.idx]]
+        if (seg < this.carTime.length) {
+          this.carTime[seg] += dt
+          if (a.slowFor > DELAY_AFTER) this.delayedTime[seg] += dt
+        }
       } else if (a.mode === Mode.Bike) this.bikeKm += travelled / 1000
       let arrived = false
       while (!arrived && a.offset >= edgeLength(net, a.edges[a.idx])) {
@@ -759,6 +989,23 @@ export class TrafficModel {
         if (++a.idx >= a.edges.length) {
           arrived = true
           break
+        }
+        if (a.mode !== Mode.Foot) {
+          const key = a.edges[a.idx] * 2 + a.mode
+          const ahead = entered.get(key) ?? this.occupancy.get(key)?.[0]
+          const room = ahead && ahead !== a && ahead.edges[ahead.idx] === a.edges[a.idx] ? ahead.offset - ahead.length - (a.mode === Mode.Car ? MIN_GAP : 0.8) : Infinity
+          if (a.offset > room) {
+            if (room < 0) {
+              // No room yet: wait at the end of the previous street.
+              a.idx--
+              a.offset = edgeLength(net, a.edges[a.idx]) - 0.05
+              a.speed = 0
+              break
+            }
+            a.offset = room
+            a.speed = Math.min(a.speed, ahead!.speed)
+          }
+          entered.set(key, a)
         }
         a.lateral = this.lateralFor(a.mode, a.edges[a.idx])
         if (a.mode === Mode.Car) {

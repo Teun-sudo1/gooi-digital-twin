@@ -1,14 +1,20 @@
+import { SEASON_LABELS, WEATHER_LABELS, type SeasonSetting, type WeatherSetting } from '../features/environment/environment'
 import type { LightingMode } from '../features/map/lighting'
 import { LAYER_GROUPS } from '../features/map/layers'
 import { useAppStore } from '../store/useAppStore'
 
-export function LayerPanel() {
+export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
   const open = useAppStore((s) => s.layerPanelOpen)
   const setOpen = useAppStore((s) => s.setLayerPanelOpen)
   const visibility = useAppStore((s) => s.layerVisibility)
   const toggleLayer = useAppStore((s) => s.toggleLayer)
   const lightingMode = useAppStore((s) => s.lightingMode)
   const setLightingMode = useAppStore((s) => s.setLightingMode)
+  const weatherSetting = useAppStore((s) => s.weatherSetting)
+  const seasonSetting = useAppStore((s) => s.seasonSetting)
+  const liveWeather = useAppStore((s) => s.liveWeather)
+  const weather = useAppStore((s) => s.weather)
+  const basemap = useAppStore((s) => s.basemap)
   const modes: { id: LightingMode; label: string }[] = [
     { id: 'auto', label: 'Sun' },
     { id: 'day', label: 'Day' },
@@ -16,19 +22,21 @@ export function LayerPanel() {
   ]
 
   return (
-    <aside className={`panel layer-panel ${open ? 'open' : ''}`}>
-      <button
-        className="panel-header"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-controls="layer-list"
-      >
-        <span>Layers</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
-          <path d="m4 6 4 4 4-4" />
-        </svg>
-      </button>
-      {open && (
+    <aside className={`panel layer-panel ${open || embedded ? 'open' : ''} ${embedded ? 'embedded' : ''}`}>
+      {!embedded && (
+        <button
+          className="panel-header"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          aria-controls="layer-list"
+        >
+          <span>Layers</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
+            <path d="m4 6 4 4 4-4" />
+          </svg>
+        </button>
+      )}
+      {(open || embedded) && (
         <ul id="layer-list" className="layer-list">
           {LAYER_GROUPS.map((group) => (
             <li key={group.id}>
@@ -43,6 +51,23 @@ export function LayerPanel() {
               </label>
             </li>
           ))}
+          <li className="lighting">
+            <span id="basemap-label">Base map</span>
+            <div className="segmented small" role="radiogroup" aria-labelledby="basemap-label">
+              {(['map', 'aerial'] as const).map((b) => (
+                <button
+                  key={b}
+                  role="radio"
+                  aria-checked={basemap === b}
+                  className={basemap === b ? 'active' : undefined}
+                  onClick={() => useAppStore.setState({ basemap: b })}
+                  title={b === 'aerial' ? 'Aerial photos of the Netherlands (PDOK Luchtfoto)' : undefined}
+                >
+                  {b === 'map' ? 'Map' : 'Aerial'}
+                </button>
+              ))}
+            </div>
+          </li>
           <li className="lighting">
             <span id="lighting-label">Lighting</span>
             <div className="segmented small" role="radiogroup" aria-labelledby="lighting-label">
@@ -59,6 +84,35 @@ export function LayerPanel() {
                 </button>
               ))}
             </div>
+          </li>
+          <li className="lighting">
+            <label htmlFor="weather-select">Weather</label>
+            <select
+              id="weather-select"
+              value={weatherSetting}
+              onChange={(e) => useAppStore.setState({ weatherSetting: e.target.value as WeatherSetting })}
+            >
+              {(Object.keys(WEATHER_LABELS) as WeatherSetting[]).map((w) => (
+                <option key={w} value={w}>
+                  {w === 'live' ? `Live${liveWeather ? `: ${WEATHER_LABELS[weather].toLowerCase()}, ${Math.round(liveWeather.temperature)}°C` : ''}` : WEATHER_LABELS[w]}
+                </option>
+              ))}
+            </select>
+          </li>
+          <li className="lighting">
+            <label htmlFor="season-select">Season</label>
+            <select
+              id="season-select"
+              value={seasonSetting}
+              onChange={(e) => useAppStore.setState({ seasonSetting: e.target.value as SeasonSetting })}
+              title="Sets the trees, the colour of the land and the sun's path"
+            >
+              {(Object.keys(SEASON_LABELS) as SeasonSetting[]).map((s) => (
+                <option key={s} value={s}>
+                  {SEASON_LABELS[s]}
+                </option>
+              ))}
+            </select>
           </li>
         </ul>
       )}

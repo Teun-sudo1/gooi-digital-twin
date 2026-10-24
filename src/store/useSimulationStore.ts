@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { amsterdamClockNow } from '../features/map/lighting'
 import type { SimulationClient } from '../features/simulation/client'
-import type { Comparison, FollowInfo, SimulationStats, TransitLineInfo } from '../types/simulation'
+import type { Comparison, FollowInfo, SimulationStats, StopBoard, TransitLineInfo } from '../types/simulation'
 
 export interface HistoryPoint {
   clock: number
@@ -42,6 +42,9 @@ interface SimulationState {
   comparison: Comparison | null
   /** Colour streets by how much busier or quieter they became. */
   showChanges: boolean
+  /** The stop whose departure board is open, and the board itself. */
+  stop: { line: number; stop: number } | null
+  board: StopBoard | null
 }
 
 export const SPEED_OPTIONS = [1, 5, 20, 60]
@@ -65,6 +68,8 @@ export const useSimulationStore = create<SimulationState>(() => ({
   chase: false,
   comparison: null,
   showChanges: true,
+  stop: null,
+  board: null,
 }))
 
 /** The time of day to show: a just-chosen time first, then the simulation's own clock. */

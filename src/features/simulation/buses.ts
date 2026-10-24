@@ -1,4 +1,4 @@
-import { AGENT_STRIDE, AgentFlag, Kind, Mode, type FollowInfo, type RouteDiagram, type RouteSide } from '../../types/simulation'
+import { AGENT_STRIDE, AgentFlag, Kind, Mode, type FollowInfo, type RouteDiagram, type RouteSide, type StopBoard } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute } from './routing'
 import { profileAt, type Agent, type TrafficModel } from './traffic'
@@ -20,8 +20,8 @@ import { BUS_ID_BASE, type Line, type TransitModel, type Trip } from './transit'
  *
  * Passengers are simulated with assumed demand (there is no ridership data):
  * they arrive at stops at a rate that follows the rush hours and is higher at
- * stops served by several lines, board the next bus (boarding takes time),
- * and get off along the way.
+ * stops served by several lines, board the next bus if there's room
+ * (boarding takes time), and get off along the way.
  */
 
 const DAY = 86_400
@@ -44,6 +44,12 @@ const PEAK_ARRIVALS = 8
 const MAX_WAITING = 40
 const SECONDS_PER_PASSENGER = 1.5
 const MAX_DWELL = 45
+/** Seated and standing places on a regional bus. */
+export const BUS_CAPACITY = 80
+/** Lines within this distance (m) share a stop on the departure board. */
+const SAME_STOP = 60
+const BOARD_AHEAD = 3600
+const BOARD_ROWS = 10
 /** Assumed share of the peak passenger demand per hour of the day. */
 const PASSENGER_PROFILE = [0.05, 0.02, 0.01, 0.01, 0.02, 0.1, 0.4, 0.9, 1.0, 0.6, 0.45, 0.5, 0.55, 0.5, 0.55, 0.75, 0.95, 0.9, 0.6, 0.4, 0.3, 0.22, 0.15, 0.08]
 
@@ -217,6 +223,8 @@ export class BusFleet {
   private point = { x: 0, y: 0, bearing: 0 }
   /** Simulated passengers waiting at each stop of each line, and how busy each stop is. */
   private waiting: Float64Array[]
+  /** Passengers the last bus couldn't take, per stop of each line. */
+  private leftBehind: Float64Array[]
   private stopWeight: Float64Array[]
   /** The line running the other way (same number), or -1. */
   private reverseOf: Int32Array
@@ -241,6 +249,7 @@ export class BusFleet {
       }),
     )
     this.waiting = transit.lines.map((line) => new Float64Array(line.stopDist.length))
+    this.leftBehind = transit.lines.map((line) => new Float64Array(line.stopDist.length))
     this.service = transit.lines.map((line) =>
       line.trips?.length
         ? [line.trips[0].times[0], line.trips.reduce((m, t) => Math.max(m, t.times[t.times.length - 1]), 0)]
@@ -263,7 +272,7 @@ export class BusFleet {
   }
 
   private passengersArrive(dt: number, clock: number) {
-    const rate = (PEAK_ARRIVALS * profileAt(PASSENGER_PROFILE, clock) * dt) / 3600
+    const rate = (PEAK_ARRIVALS * this.traffic.weather.busDemand * profileAt(PASSENGER_PROFILE, clock) * dt) / 3600
     this.transit.lines.forEach((line, li) => {
       if (line.info.mode !== 'bus' || !this.inService(line, clock)) return
       const waiting = this.waiting[li]
@@ -282,6 +291,7 @@ export class BusFleet {
     copy.started = new Set(this.started)
     copy.lastClock = this.lastClock
     copy.waiting = this.waiting.map((w) => w.slice())
+    copy.leftBehind = this.leftBehind.map((w) => w.slice())
     copy.buses = this.buses.map((b) => ({ ...b, plan: null, detour: b.detour && { ...b.detour }, pseudo: { ...b.pseudo, edges: Int32Array.from(b.pseudo.edges) } }))
     return copy
   }
@@ -444,7 +454,7 @@ export class BusFleet {
         this.planAhead(bus, runs)
         const run = this.runAt(runs, bus.d + HALF)
         const limit = run ? net.edgeSpeed[Mode.Bus][run.edge] || net.segCarSpeed[net.edgeSeg[run.edge]] : FREE_SPEED
-        const vmax = Math.min(MAX_SPEED, limit)
+        const vmax = Math.min(MAX_SPEED, limit) * traffic.weather.carSpeed
         const stop = bus.stops[bus.stopIdx]
         target = vmax
         if (stop) {
@@ -527,9 +537,11 @@ export class BusFleet {
     const li = bus.stopLine[bus.stopIdx]
     if (remaining > 0 && li >= 0) {
       const waiting = this.waiting[bus.line.info.index]
-      board = Math.floor(waiting[li])
+      const wanting = Math.floor(waiting[li])
+      board = Math.min(wanting, BUS_CAPACITY - bus.onBoard)
       waiting[li] -= board
       bus.onBoard += board
+      this.leftBehind[bus.line.info.index][li] = wanting - board
     }
     return alight + board
   }
@@ -559,6 +571,76 @@ export class BusFleet {
     return { forward: this.routeSide(index), back: back >= 0 ? this.routeSide(back) : null }
   }
 
+  /** Departures from a stop (and stops of other lines within a few metres) over the next hour. */
+  board(lineIndex: number, stopIndex: number, clock: number): StopBoard | null {
+    const transit = this.transit
+    const line = transit.lines[lineIndex]
+    if (!line || stopIndex < 0 || stopIndex >= line.stopDist.length) return null
+    const at = { x: 0, y: 0, bearing: 0 }
+    transit.pointAt(line, line.stopDist[stopIndex], at)
+    const { x, y } = at
+    const p = { x: 0, y: 0, bearing: 0 }
+    const here: { line: Line; stop: number }[] = []
+    for (const other of transit.lines) {
+      if (!other.trips?.length) continue
+      other.stopDist.forEach((d, i) => {
+        transit.pointAt(other, d, p)
+        if (Math.hypot(p.x - x, p.y - y) < SAME_STOP) here.push({ line: other, stop: i })
+      })
+    }
+    const departures: StopBoard['departures'] = []
+    let waiting = 0
+    let leftBehind = 0
+    for (const { line: l, stop } of here) {
+      const li = l.info.index
+      if (l.info.mode === 'bus') {
+        waiting += this.waiting[li][stop]
+        leftBehind += this.leftBehind[li][stop]
+      }
+      // The last stop of a variant has arrivals, not departures.
+      if (stop === l.stopDist.length - 1) continue
+      const sd = l.stopDist[stop]
+      l.trips!.forEach((trip, ti) => {
+        let time = -1
+        let best = 150
+        for (let k = 0; k < trip.dist.length; k++) {
+          const off = Math.abs(trip.dist[k] - sd)
+          if (off < best) {
+            best = off
+            time = trip.times[k]
+          }
+        }
+        if (time < 0) return
+        const until = ((time - clock) % DAY + DAY + DAY / 2) % DAY - DAY / 2
+        if (until < -120 || until > BOARD_AHEAD) return
+        const id = BUS_ID_BASE + li * 1000 + ti
+        const bus = l.info.mode === 'bus' ? this.buses.find((b) => b.id === id) : undefined
+        if (bus && bus.d > sd + 5) return // already gone
+        if (!bus && until < 0 && l.info.mode === 'bus') return
+        const atStop = bus !== undefined && Math.abs(bus.d - sd) <= 5
+        departures.push({
+          time: time % DAY,
+          line: li,
+          to: l.info.to,
+          busId: bus ? id : null,
+          delayMinutes: bus ? bus.delay / 60 : 0,
+          status: atStop ? 'at-stop' : bus ? 'approaching' : 'scheduled',
+        })
+      })
+    }
+    const expected = (d: StopBoard['departures'][number]) => ((d.time + d.delayMinutes * 60 - clock + DAY + DAY / 2) % DAY) - DAY / 2
+    departures.sort((a, b) => expected(a) - expected(b))
+    const refs = new Map<string, number>()
+    for (const { line: l } of here) if (!refs.has(`${l.info.mode}:${l.info.ref}`)) refs.set(`${l.info.mode}:${l.info.ref}`, l.info.index)
+    return {
+      name: line.stopNames[stopIndex],
+      lines: [...refs.values()],
+      waiting: Math.floor(waiting),
+      leftBehind: Math.floor(leftBehind),
+      departures: departures.slice(0, BOARD_ROWS),
+    }
+  }
+
   private occupiedEdge(bus: Bus, runs: Run[]): { edge: number; offset: number } | null {
     if (bus.detour) return { edge: bus.detour.edges[bus.detour.idx], offset: bus.detour.offset }
     const run = this.runAt(runs, bus.d + HALF)
@@ -569,7 +651,7 @@ export class BusFleet {
     const detour = bus.detour!
     const edge = detour.edges[detour.idx]
     const toEnd = edgeLength(net, edge) - detour.offset
-    let target = Math.min(MAX_SPEED, net.edgeSpeed[Mode.Bus][edge] || 8.3)
+    let target = Math.min(MAX_SPEED, net.edgeSpeed[Mode.Bus][edge] || 8.3) * this.traffic.weather.carSpeed
     if (detour.idx + 1 < detour.edges.length) {
       // Turns on the diversion: slow for them.
       target = Math.min(target, Math.sqrt(36 + 2 * DECEL * Math.max(0, toEnd - 1)))
@@ -663,6 +745,7 @@ export class BusFleet {
       nextStopTime: next ? next.arrive % DAY : null,
       detour: Boolean(bus.detour || bus.plan?.edges),
       onBoard: bus.onBoard,
+      capacity: BUS_CAPACITY,
       route: this.route(bus.line.info.index),
     }
   }

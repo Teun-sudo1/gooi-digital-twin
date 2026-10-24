@@ -34,3 +34,10 @@ export function shortName(name: string | null, max = 14): string {
   const part = name.split(', ').pop()!
   return part.length > max ? `${part.slice(0, max - 1)}…` : part
 }
+
+/** Line badge colours: the line colour with dark or light text, whichever reads better. */
+export function badgeStyle(colour: string): { background: string; color: string } {
+  const n = Number.parseInt(colour.slice(1), 16)
+  const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return { background: colour, color: luminance > 0.6 ? '#111418' : '#ffffff' }
+}

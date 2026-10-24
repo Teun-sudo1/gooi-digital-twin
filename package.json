@@ -12,8 +12,8 @@
     "test": "vitest run",
     "fetch-osm": "node scripts/fetch-osm.mjs",
     "fetch-timetables": "node scripts/fetch-timetables.mjs",
-    "fetch-scenery": "node scripts/fetch-scenery.mjs",
-    "data": "node scripts/fetch-osm.mjs && node scripts/fetch-timetables.mjs && node scripts/fetch-scenery.mjs"
+    "fetch-scenery": "node scripts/fetch-scenery.mjs && node scripts/fetch-demand.mjs",
+    "data": "node scripts/fetch-osm.mjs && node scripts/fetch-timetables.mjs && node scripts/fetch-scenery.mjs && node scripts/fetch-demand.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.15.0",

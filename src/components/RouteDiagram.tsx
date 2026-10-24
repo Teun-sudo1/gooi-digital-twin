@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSimulationStore } from '../store/useSimulationStore'
 import type { RouteSide, TransitLineInfo } from '../types/simulation'
-import { shortName } from '../utils/format'
+import { badgeStyle, shortName } from '../utils/format'
 
 /*
  * The followed bus's line as a schematic loop: one direction down the left,
@@ -72,7 +72,7 @@ function Side({
   )
 }
 
-export function RouteDiagram() {
+export function RouteDiagram({ embedded = false }: { embedded?: boolean }) {
   const info = useSimulationStore((s) => s.followInfo)
   const followId = useSimulationStore((s) => s.followId)
   const lines = useSimulationStore((s) => s.lines)
@@ -107,10 +107,10 @@ export function RouteDiagram() {
   const follow = (id: number) => controller?.setFollow(id)
 
   return (
-    <section className={`panel route-panel ${open ? 'open' : ''}`} aria-label={`Route of line ${line.ref}`}>
+    <section className={`panel route-panel ${open || embedded ? 'open' : ''} ${embedded ? 'embedded' : ''}`} aria-label={`Route of line ${line.ref}`}>
       <button className="panel-header" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>
-          <span className="line-badge" style={{ background: line.colour }}>
+          <span className="line-badge" style={badgeStyle(line.colour)}>
             {line.ref}
           </span>{' '}
           Route
@@ -119,7 +119,7 @@ export function RouteDiagram() {
           <path d="m4 6 4 4 4-4" />
         </svg>
       </button>
-      {open && (
+      {(open || embedded) && (
         <div className="route-body" ref={scroller}>
           <p className="route-ends">
             <span>↓ to {line.to ?? 'end'}</span>

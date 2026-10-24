@@ -76,6 +76,29 @@ export interface NetworkFile {
   }
 }
 
+/** public/data/gooi-demand.json: CBS figures per neighbourhood (scripts/fetch-demand.mjs). */
+export interface DemandFile {
+  meta: { source: string; license: string; year: number; projection: Projection }
+  areas: {
+    code: string
+    name: string
+    municipality: string
+    population: number
+    businesses: number
+    /** Outer rings in integer local metres, delta-encoded. */
+    rings: number[][]
+  }[]
+}
+
+/** How the weather changes travel, relative to dry weather (assumed). */
+export interface WeatherEffects {
+  carDemand: number
+  bikeDemand: number
+  carSpeed: number
+  bikeSpeed: number
+  busDemand: number
+}
+
 export interface TransitLineRecord {
   /** OSM relation id. */
   id: number
@@ -209,7 +232,7 @@ export interface Viewport {
 }
 
 export type ToWorker =
-  | { type: 'init'; networkUrl: string; transitUrl: string; clock: number; density: number; speed: number; playing: boolean }
+  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; clock: number; density: number; speed: number; playing: boolean }
   | { type: 'play'; playing: boolean }
   | { type: 'speed'; speed: number }
   | { type: 'density'; density: number }
@@ -219,6 +242,9 @@ export type ToWorker =
   | { type: 'scenario'; interventions: Intervention[] }
   /** Follow one vehicle: its details are reported and it is always in the frame. */
   | { type: 'follow'; id: number | null }
+  | { type: 'weather'; effects: WeatherEffects }
+  /** Show the departure board of a line's stop (null closes it). */
+  | { type: 'stop'; line: number | null; stop: number }
   /** Find the street (or junction) nearest to a point, within `radius` metres. */
   | { type: 'pick'; id: number; target: 'segment' | 'junction'; lngLat: [number, number]; radius: number; mask: number }
 
@@ -252,8 +278,9 @@ export type FollowInfo =
       /** Scheduled time at the next stop, seconds since midnight. */
       nextStopTime: number | null
       detour: boolean
-      /** Simulated passengers on board (buses; assumed demand). */
+      /** Simulated passengers on board (buses; assumed demand), and how many fit. */
       onBoard: number | null
+      capacity: number | null
       /** The whole line as a schematic loop (buses only). */
       route: RouteDiagram | null
     }
@@ -266,6 +293,26 @@ export interface RouteSide {
   stops: { name: string | null; waiting: number }[]
   /** Buses on this direction: position in stops (fractional: 2.5 = halfway between the third and fourth stop). */
   buses: { id: number; at: number; delayMinutes: number }[]
+}
+
+/** A departure board for a stop (all lines within a short walk). */
+export interface StopBoard {
+  name: string | null
+  /** Line indices serving the stop (one per line number). */
+  lines: number[]
+  /** Simulated passengers waiting, and those left behind by the last full bus. */
+  waiting: number
+  leftBehind: number
+  departures: {
+    /** Scheduled time, seconds since midnight. */
+    time: number
+    line: number
+    to: string | null
+    /** The bus on its way, when it is already running (null for trains and later trips). */
+    busId: number | null
+    delayMinutes: number
+    status: 'scheduled' | 'approaching' | 'at-stop'
+  }[]
 }
 
 export interface RouteDiagram {
@@ -307,5 +354,11 @@ export type FromWorker =
   | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number }
   | { type: 'follow'; id: number; info: FollowInfo | null }
   | { type: 'comparison'; comparison: Comparison | null }
+  | { type: 'board'; board: StopBoard | null }
+  /**
+   * How congested streets are: per segment, the share of car time spent held up
+   * (0 = free flowing, 1 = standing). Geometry is sent the first time a segment appears.
+   */
+  | { type: 'congestion'; segments: Int32Array; levels: Float32Array; geometry: { segment: number; coordinates: [number, number][] }[] }
   | { type: 'stats'; stats: SimulationStats }
   | { type: 'pick'; id: number; segment: SegmentInfo | null; junction: JunctionInfo | null }

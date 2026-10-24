@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { BUSIER, QUIETER } from '../features/scenarios/useComparisonLayer'
+import { CONGESTION_COLOURS } from '../features/simulation/client'
 import { CAR_COLOURS, CLOTHING_COLOURS } from '../features/simulation/icons'
 import { CO2_KG_PER_KM } from '../features/simulation/traffic'
 import { type HistoryPoint, useSimulationStore } from '../store/useSimulationStore'
@@ -104,7 +105,8 @@ function ComparisonTable({ comparison }: { comparison: Comparison }) {
   )
 }
 
-export function SimulationDashboard() {
+/** `embedded`: shown in the mobile sheet, always open and without its own header. */
+export function SimulationDashboard({ embedded = false }: { embedded?: boolean }) {
   const status = useSimulationStore((s) => s.status)
   const stats = useSimulationStore((s) => s.stats)
   const history = useSimulationStore((s) => s.history)
@@ -129,17 +131,19 @@ export function SimulationDashboard() {
     : null
 
   return (
-    <section className={`panel dashboard ${open ? 'open' : ''}`} aria-label="Simulated statistics">
-      <button className="panel-header" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span>
-          Simulated statistics <span className="sim-badge small">Model</span>
-        </span>
-        <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
-          <path d="m4 6 4 4 4-4" />
-        </svg>
-      </button>
+    <section className={`panel dashboard ${open || embedded ? 'open' : ''} ${embedded ? 'embedded' : ''}`} aria-label="Simulated statistics">
+      {!embedded && (
+        <button className="panel-header" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span>
+            Simulated statistics <span className="sim-badge small">Model</span>
+          </span>
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
+            <path d="m4 6 4 4 4-4" />
+          </svg>
+        </button>
+      )}
 
-      {open && (
+      {(open || embedded) && (
         <div className="dashboard-body">
           {!stats ? (
             <p className="sim-note">Loading the Gooi street and transit networks…</p>
@@ -228,6 +232,15 @@ export function SimulationDashboard() {
                   <span className="swatch" style={{ background: '#ff2a1a' }} />
                   Brake lights
                 </li>
+                <li className="congestion-key" title="Share of time cars on a street spend held up (simulated)">
+                  Streets:
+                  {['free', 'slow', 'queuing', 'jammed'].map((label, i) => (
+                    <span key={label}>
+                      <span className="swatch line" style={{ background: CONGESTION_COLOURS[i] }} />
+                      {label}
+                    </span>
+                  ))}
+                </li>
               </ul>
             </>
           )}
@@ -238,7 +251,7 @@ export function SimulationDashboard() {
             {timetableDay
               ? `Buses and trains run to the real timetable of ${timetableDay} (${formatCount(scheduledTrips)} trips, OVapi/NDOV open data). Buses drive through the simulated traffic, so their delays are simulated too. `
               : 'Bus and train frequencies are assumed. '}
-            Car, bike and pedestrian demand and driving behaviour are assumed. CO₂ assumes {CO2_KG_PER_KM * 1000} g/km
+            Trips start and end in proportion to CBS 2024 population and business counts per neighbourhood; trip rates, weather effects and driving behaviour are assumed. CO₂ assumes {CO2_KG_PER_KM * 1000} g/km
             per car. Building heights are approximate.
           </p>
         </div>

@@ -1,6 +1,5 @@
 import {
   Map as MapLibreMap,
-  NavigationControl,
   ScaleControl,
   setWorkerUrl,
   type ErrorEvent,
@@ -11,7 +10,7 @@ import { useEffect, useRef } from 'react'
 import { GOOI_BOUNDS, REGION_VIEW } from '../../data/places'
 import type { CameraView } from '../../types/geo'
 import { useAppStore } from '../../store/useAppStore'
-import { applyVisibility } from './layers'
+import { applyBasemapStyle, applyVisibility } from './layers'
 import { useSimulationStore } from '../../store/useSimulationStore'
 import { nightFactorFor } from './lighting'
 import { buildStyle, paletteFor } from './style'
@@ -51,6 +50,7 @@ export function MapView() {
   const map = useAppStore((s) => s.map)
   const mapStatus = useAppStore((s) => s.mapStatus)
   const layerVisibility = useAppStore((s) => s.layerVisibility)
+  const basemap = useAppStore((s) => s.basemap)
 
   useEffect(() => {
     const { setMap, setMapStatus } = useAppStore.getState()
@@ -74,12 +74,15 @@ export function MapView() {
       hash: true,
       attributionControl: { compact: true },
     })
-    instance.addControl(new NavigationControl({ showCompass: false }), 'bottom-right')
     instance.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left')
 
     let loaded = false
     instance.on('load', () => {
       loaded = true
+      // On phones the credits start folded behind their (i) button.
+      if (window.matchMedia('(max-width: 640px)').matches) {
+        instance.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show')
+      }
       setMapStatus('ready')
     })
     instance.on('error', (event: ErrorEvent) => {
@@ -102,8 +105,12 @@ export function MapView() {
   }, [])
 
   useEffect(() => {
-    if (map && mapStatus === 'ready') applyVisibility(map, layerVisibility)
-  }, [map, mapStatus, layerVisibility])
+    if (map && mapStatus === 'ready') applyVisibility(map, layerVisibility, basemap)
+  }, [map, mapStatus, layerVisibility, basemap])
+
+  useEffect(() => {
+    if (map && mapStatus === 'ready') applyBasemapStyle(map, basemap)
+  }, [map, mapStatus, basemap])
 
   return <div ref={containerRef} className="map" />
 }
