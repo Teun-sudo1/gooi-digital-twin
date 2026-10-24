@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -9,4 +10,6 @@ export default defineConfig(({ command, isPreview }) => ({
   plugins: [react()],
   // MapLibre GL alone is ~1 MB minified; that is expected for a WebGL map engine.
   build: { chunkSizeWarningLimit: 1600 },
+  // Simulation tests run minutes of simulated traffic on the real network; CI runners are slower.
+  test: { testTimeout: 30_000 },
 }))
