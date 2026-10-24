@@ -8,6 +8,7 @@ import {
   type FromWorker,
   type Intervention,
   type NetworkFile,
+  type SignalsFile,
   type StreetChange,
   type ToWorker,
   type TransitFile,
@@ -23,6 +24,7 @@ import {
 } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, toLngLat, type Network } from './network'
+import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
 import { BUS_ID_BASE, TRAIN_ID_BASE, TransitModel } from './transit'
 
@@ -132,10 +134,12 @@ function tick() {
       transitCount = fleet.writeFrame(transitBuffer, transitCount, viewport, followed)
       const agents = agentBuffer.slice(0, agentCount * AGENT_STRIDE)
       const transitFrame = transitBuffer.slice(0, transitCount * AGENT_STRIDE)
+      const signals = new Uint8Array(traffic.signals?.plan.heads.length ?? 0)
+      traffic.signals?.writeStates(signals)
       awaitingAck = true
       post(
-        { type: 'frame', agents, agentCount, transit: transitFrame, transitCount },
-        [agents.buffer, transitFrame.buffer],
+        { type: 'frame', agents, agentCount, transit: transitFrame, transitCount, signals },
+        [agents.buffer, transitFrame.buffer, signals.buffer],
       )
     }
     if (started - lastStats > STATS_INTERVAL) {
@@ -260,11 +264,13 @@ function compare(): Comparison | null {
 
 async function init(message: Extract<ToWorker, { type: 'init' }>) {
   try {
-    const [file, transitFile, demand] = await Promise.all([
+    const [file, transitFile, demand, signalsFile] = await Promise.all([
       fetchJson<NetworkFile>(message.networkUrl),
       fetchJson<TransitFile>(message.transitUrl),
       // Without neighbourhood figures, trips are spread evenly.
       fetchJson<DemandFile>(message.demandUrl).catch(() => null),
+      // Without mapped signals, every junction uses the right-of-way rules.
+      fetchJson<SignalsFile>(message.signalsUrl).catch(() => null),
     ])
     networkFile = file
     scenario = buildScenarioNetwork(file, [])
@@ -273,6 +279,10 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
     const traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now(), demand })
     traffic.viewport = viewport
     if (weather) traffic.weather = weather
+    if (signalsFile) {
+      traffic.signals = new Signals(buildSignalPlan(scenario.net, signalsFile.points))
+      traffic.signals.enabled = message.signals
+    }
     const fleet = new BusFleet(transit, matchLines(transit, scenario.net), traffic)
     main = { traffic, fleet }
     playing = message.playing
@@ -284,6 +294,7 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
       projection: file.meta.projection,
       lines: transit.infos,
       timetableDate: transit.timetableDate,
+      signals: traffic.signals?.plan.heads.map(({ x, y, bearing }) => ({ x, y, bearing })) ?? [],
     })
     lastTick = performance.now()
     tick()
@@ -362,6 +373,9 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
     case 'weather':
       if (main) for (const run of runs()) run.traffic.weather = { ...message.effects }
       weather = { ...message.effects }
+      break
+    case 'signals':
+      if (main) for (const run of runs()) if (run.traffic.signals) run.traffic.signals.enabled = message.enabled === true
       break
     case 'stop':
       board = message.line === null || !Number.isInteger(message.line) || !Number.isInteger(message.stop) ? null : { line: message.line, stop: message.stop }

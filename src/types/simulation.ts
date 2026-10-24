@@ -23,6 +23,7 @@ export const Kind = {
   Pedestrian: 6,
   Bus: 7,
   TrainCar: 8,
+  TrafficLight: 9,
 } as const
 export type Kind = (typeof Kind)[keyof typeof Kind]
 
@@ -232,7 +233,7 @@ export interface Viewport {
 }
 
 export type ToWorker =
-  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; clock: number; density: number; speed: number; playing: boolean }
+  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; clock: number; density: number; speed: number; playing: boolean }
   | { type: 'play'; playing: boolean }
   | { type: 'speed'; speed: number }
   | { type: 'density'; density: number }
@@ -243,6 +244,8 @@ export type ToWorker =
   /** Follow one vehicle: its details are reported and it is always in the frame. */
   | { type: 'follow'; id: number | null }
   | { type: 'weather'; effects: WeatherEffects }
+  /** Traffic lights on, or right-of-way rules at every junction. */
+  | { type: 'signals'; enabled: boolean }
   /** Show the departure board of a line's stop (null closes it). */
   | { type: 'stop'; line: number | null; stop: number }
   /** Find the street (or junction) nearest to a point, within `radius` metres. */
@@ -321,6 +324,19 @@ export interface RouteDiagram {
   back: RouteSide | null
 }
 
+/** Mapped traffic signals (public/data/gooi-signals.json), in local metres. */
+export interface SignalsFile {
+  attribution: string
+  points: [number, number][]
+}
+
+/** A traffic light head, in local metres, facing `bearing` (degrees). */
+export interface SignalHead {
+  x: number
+  y: number
+  bearing: number
+}
+
 /** One side of a before/after comparison, measured since the last road change. */
 export interface ComparisonSide {
   journeyMinutes: number | null
@@ -349,9 +365,9 @@ export interface Comparison {
 }
 
 export type FromWorker =
-  | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null }
+  | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null; signals: SignalHead[] }
   | { type: 'error'; message: string }
-  | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number }
+  | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number; signals: Uint8Array }
   | { type: 'follow'; id: number; info: FollowInfo | null }
   | { type: 'comparison'; comparison: Comparison | null }
   | { type: 'board'; board: StopBoard | null }
