@@ -1,4 +1,4 @@
-import { HUIZEN_CENTER } from '../data/places'
+import { REGION_CENTER } from '../data/places'
 import type { LngLat, SearchResult } from '../types/geo'
 
 /*
@@ -28,9 +28,9 @@ export async function searchLocations(query: string, signal?: AbortSignal): Prom
     rows: '8',
     fl: 'id,weergavenaam,type,centroide_ll',
     fq: 'type:(woonplaats OR weg OR adres OR postcode OR gemeente)',
-    // lat/lon boosts results near Huizen, so "Kerkstraat" finds the local one first.
-    lat: String(HUIZEN_CENTER[1]),
-    lon: String(HUIZEN_CENTER[0]),
+    // lat/lon boosts results in the Gooi, so "Kerkstraat" finds a local one first.
+    lat: String(REGION_CENTER[1]),
+    lon: String(REGION_CENTER[0]),
   })
   const response = await fetch(`${ENDPOINT}?${params}`, { signal })
   if (!response.ok) throw new Error(`PDOK search failed (${response.status})`)

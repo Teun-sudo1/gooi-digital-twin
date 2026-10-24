@@ -23,6 +23,8 @@ export type LayerGroupId =
   | 'landuse'
   | 'labels'
   | 'traffic'
+  | 'transit'
+  | 'transitRoutes'
 
 export interface LayerGroup {
   id: LayerGroupId

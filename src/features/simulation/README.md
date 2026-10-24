@@ -1,10 +1,14 @@
 # Simulation
 
-Simulated traffic on the real Huizen road network. Every number produced here is
-model output, not measured traffic.
+Simulated travellers on the real Gooi networks. Everything produced here is
+model output, not measured traffic. Only the networks and the bus and train
+timetables are real.
 
-- `graph.ts`: loads `public/data/huizen-roads.json` and builds a directed graph in local metres
-- `routing.ts`: A* fastest-route search, with optional closed segments
-- `engine.ts`: demand, trip generation, car-following, right of way and statistics (no DOM or map code)
-- `controller.ts`: animation loop, map layer for the cars, throttled stats for React
-- `simulation.test.ts`: unit tests on a tiny synthetic network and on the real data
+- `network.ts`: decodes `public/data/gooi-network.json` into typed arrays (local metres) with per-mode directed edges
+- `routing.ts`: A* and cached shortest-path trees per mode, both with optional closed segments
+- `traffic.ts`: cars (five types), bikes and pedestrians; demand, car-following, Dutch right of way, statistics
+- `transit.ts`: buses and trains on OSM routes, driven by real GTFS stop times (or assumed frequencies without them)
+- `sim.worker.ts`: runs the models in a Web Worker and streams visible agents as typed arrays
+- `client.ts`: main-thread side: map layers, frame rendering, viewport updates, statistics
+- `icons.ts`: vehicle and people icons drawn on canvas
+- `simulation.test.ts`: unit tests on a synthetic network and the real data

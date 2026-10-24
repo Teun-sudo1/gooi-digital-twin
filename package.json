@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "fetch-roads": "node scripts/fetch-roads.mjs"
+    "fetch-osm": "node scripts/fetch-osm.mjs",
+    "fetch-timetables": "node scripts/fetch-timetables.mjs",
+    "data": "node scripts/fetch-osm.mjs && node scripts/fetch-timetables.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.15.0",

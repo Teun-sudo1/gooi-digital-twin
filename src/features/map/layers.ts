@@ -3,7 +3,10 @@ import type { LayerGroup, LayerGroupId } from '../../types/geo'
 
 /** User-facing layer toggles, each mapped onto the style layers in style.ts. */
 export const LAYER_GROUPS: LayerGroup[] = [
-  { id: 'traffic', label: 'Simulated traffic', layerIds: ['sim-vehicles'] },
+  { id: 'traffic', label: 'Cars, bikes & pedestrians', layerIds: ['sim-agents', 'sim-headlights'] },
+  { id: 'transit', label: 'Buses & trains', layerIds: ['sim-transit', 'sim-trains'] },
+  // Only the map display of routes and stops; buses and trains keep running either way.
+  { id: 'transitRoutes', label: 'Transit routes & stops', layerIds: ['transit-routes', 'transit-stops'] },
   { id: 'buildings', label: '3D buildings', layerIds: ['buildings-3d'] },
   {
     id: 'roads',
@@ -43,6 +46,8 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   landuse: true,
   labels: true,
   traffic: true,
+  transit: true,
+  transitRoutes: true,
 }
 
 export function applyVisibility(map: MapLibreMap, visibility: LayerVisibility) {

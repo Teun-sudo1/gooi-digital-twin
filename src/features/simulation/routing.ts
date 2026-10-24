@@ -1,13 +1,18 @@
-import type { Route } from '../../types/simulation'
-import type { RoadGraph } from './graph'
+import { edgeLength, MODE_BIT, type Network } from './network'
+import type { Mode } from '../../types/simulation'
 
-/** Minimal binary min-heap keyed by priority. */
-class MinHeap {
+/** Minimal binary min-heap of (priority, value) pairs. */
+export class MinHeap {
   private keys: number[] = []
   private values: number[] = []
 
   get size() {
     return this.keys.length
+  }
+
+  clear() {
+    this.keys.length = 0
+    this.values.length = 0
   }
 
   push(key: number, value: number) {
@@ -50,58 +55,179 @@ class MinHeap {
   }
 }
 
+export interface Route {
+  edges: Int32Array
+  lengthMeters: number
+  /** Travel time at the mode's free-flow speed. */
+  freeFlowSeconds: number
+}
+
+/** Segments closed to all traffic (milestone 3 interventions). */
+export type Closures = Uint8Array | null
+
+const usable = (net: Network, e: number, bit: number, closed: Closures) =>
+  (net.edgeModes[e] & bit) !== 0 && !(closed && closed[net.edgeSeg[e]])
+
+function finishRoute(net: Network, mode: Mode, edges: number[]): Route {
+  let lengthMeters = 0
+  let freeFlowSeconds = 0
+  for (const e of edges) {
+    const length = edgeLength(net, e)
+    lengthMeters += length
+    freeFlowSeconds += length / net.edgeSpeed[mode][e]
+  }
+  return { edges: Int32Array.from(edges), lengthMeters, freeFlowSeconds }
+}
+
 /**
- * Fastest route by free-flow travel time (length / speed limit), using A*
- * with a straight-line heuristic at the network's top speed, which never
- * overestimates and so keeps results optimal. Roads whose segment is in
- * `closed` are skipped. Returns null when no route exists.
+ * Fastest route for one mode by free-flow travel time (A* with a
+ * straight-line heuristic at the mode's top speed, which never overestimates
+ * and so keeps routes optimal). Best for short or one-off trips.
  */
-export function findRoute(
-  graph: RoadGraph,
-  from: number,
-  to: number,
-  closed?: ReadonlySet<string>,
-): Route | null {
+export function findRoute(net: Network, mode: Mode, from: number, to: number, closed: Closures = null): Route | null {
   if (from === to) return null
-  const { nodes, roads, maxSpeedMs } = graph
-  const n = nodes.length
+  const bit = MODE_BIT[mode]
+  const speed = net.edgeSpeed[mode]
+  const n = net.nodeCount
   const cost = new Float64Array(n).fill(Infinity)
   const via = new Int32Array(n).fill(-1)
   const done = new Uint8Array(n)
-  const target = nodes[to]
-  const heuristic = (id: number) =>
-    Math.hypot(nodes[id].x - target.x, nodes[id].y - target.y) / maxSpeedMs
+  const tx = net.nodeX[to]
+  const ty = net.nodeY[to]
+  const vmax = net.maxSpeed[mode]
+  const h = (i: number) => Math.hypot(net.nodeX[i] - tx, net.nodeY[i] - ty) / vmax
 
   const heap = new MinHeap()
   cost[from] = 0
-  heap.push(heuristic(from), from)
-
-  while (heap.size > 0) {
+  heap.push(h(from), from)
+  while (heap.size) {
     const u = heap.pop()
     if (done[u]) continue
     if (u === to) break
     done[u] = 1
-    for (const roadId of nodes[u].outgoing) {
-      const road = roads[roadId]
-      if (closed?.has(road.segmentId)) continue
-      const v = road.to
+    for (let k = net.outStart[u]; k < net.outStart[u + 1]; k++) {
+      const e = net.outEdges[k]
+      if (!usable(net, e, bit, closed)) continue
+      const v = net.edgeTo[e]
       if (done[v]) continue
-      const next = cost[u] + road.lengthMeters / road.speedLimitMs
+      const next = cost[u] + edgeLength(net, e) / speed[e]
       if (next < cost[v]) {
         cost[v] = next
-        via[v] = roadId
-        heap.push(next + heuristic(v), v)
+        via[v] = e
+        heap.push(next + h(v), v)
       }
     }
   }
-
   if (via[to] === -1) return null
-  const path: number[] = []
-  let lengthMeters = 0
-  for (let node = to; node !== from; node = roads[via[node]].from) {
-    path.push(via[node])
-    lengthMeters += roads[via[node]].lengthMeters
+  const edges: number[] = []
+  for (let node = to; node !== from; node = net.edgeFrom[via[node]]) edges.push(via[node])
+  edges.reverse()
+  return finishRoute(net, mode, edges)
+}
+
+/**
+ * A complete shortest-path tree for one mode around a root junction: either
+ * every node's fastest way *to* the root ('to') or *from* the root ('from').
+ * Building one costs a single Dijkstra over the network (~10 ms); after that,
+ * a route between the root and any node is a pointer walk. Trips cluster on
+ * a limited set of destination zones, so caching trees makes routing
+ * thousands of trips cheap.
+ */
+export class PathTree {
+  readonly net: Network
+  readonly mode: Mode
+  readonly root: number
+  readonly direction: 'to' | 'from'
+  /** Edge to follow next ('to' tree) or the edge used to arrive ('from' tree); -1 when unreachable. */
+  readonly parent: Int32Array
+
+  constructor(net: Network, mode: Mode, root: number, direction: 'to' | 'from', closed: Closures) {
+    this.net = net
+    this.mode = mode
+    this.root = root
+    this.direction = direction
+    const n = net.nodeCount
+    const parent = new Int32Array(n).fill(-1)
+    const cost = new Float64Array(n).fill(Infinity)
+    const done = new Uint8Array(n)
+    const bit = MODE_BIT[mode]
+    const speed = net.edgeSpeed[mode]
+    const forward = direction === 'from'
+    const start = forward ? net.outStart : net.inStart
+    const list = forward ? net.outEdges : net.inEdges
+    const heap = new MinHeap()
+    cost[root] = 0
+    heap.push(0, root)
+    while (heap.size) {
+      const u = heap.pop()
+      if (done[u]) continue
+      done[u] = 1
+      for (let k = start[u]; k < start[u + 1]; k++) {
+        const e = list[k]
+        if (!usable(net, e, bit, closed)) continue
+        const v = forward ? net.edgeTo[e] : net.edgeFrom[e]
+        if (done[v]) continue
+        const next = cost[u] + edgeLength(net, e) / speed[e]
+        if (next < cost[v]) {
+          cost[v] = next
+          parent[v] = e
+          heap.push(next, v)
+        }
+      }
+    }
+    this.parent = parent
   }
-  path.reverse()
-  return { roads: path, lengthMeters, freeFlowSeconds: cost[to] }
+
+  /** Route between `node` and the root, in travel order; null when unreachable. */
+  route(node: number): Route | null {
+    if (node === this.root || this.parent[node] === -1) return null
+    const { net, parent } = this
+    const edges: number[] = []
+    if (this.direction === 'to') {
+      for (let u = node; u !== this.root; u = net.edgeTo[parent[u]]) edges.push(parent[u])
+    } else {
+      for (let u = node; u !== this.root; u = net.edgeFrom[parent[u]]) edges.push(parent[u])
+      edges.reverse()
+    }
+    return finishRoute(net, this.mode, edges)
+  }
+}
+
+/** Least-recently-used cache of path trees, keyed by mode, direction and root. */
+export class TreeCache {
+  private trees = new Map<string, PathTree>()
+  private closed: Closures = null
+  private net: Network
+  private capacity: number
+  builtThisTick = 0
+
+  constructor(net: Network, capacity: number) {
+    this.net = net
+    this.capacity = capacity
+  }
+
+  setClosures(closed: Closures) {
+    this.closed = closed
+    this.trees.clear()
+  }
+
+  has(mode: Mode, root: number, direction: 'to' | 'from') {
+    return this.trees.has(`${mode}:${direction}:${root}`)
+  }
+
+  get(mode: Mode, root: number, direction: 'to' | 'from'): PathTree {
+    const key = `${mode}:${direction}:${root}`
+    let tree = this.trees.get(key)
+    if (tree) {
+      // Refresh recency.
+      this.trees.delete(key)
+      this.trees.set(key, tree)
+      return tree
+    }
+    tree = new PathTree(this.net, mode, root, direction, this.closed)
+    this.builtThisTick++
+    this.trees.set(key, tree)
+    if (this.trees.size > this.capacity) this.trees.delete(this.trees.keys().next().value!)
+    return tree
+  }
 }

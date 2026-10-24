@@ -1,7 +1,8 @@
 import { SPEED_OPTIONS, useSimulationStore } from '../store/useSimulationStore'
+import { sunElevation } from '../features/map/lighting'
 import { dayPeriod, formatClock } from '../utils/format'
 
-/** Bottom bar: play/pause, simulated clock, time of day, playback speed and traffic density. */
+/** Bottom bar: play/pause, simulated clock, time of day, playback speed and traffic density (bikes scale with cars). */
 export function SimulationBar() {
   const status = useSimulationStore((s) => s.status)
   const error = useSimulationStore((s) => s.error)
@@ -9,7 +10,7 @@ export function SimulationBar() {
   const playing = useSimulationStore((s) => s.playing)
   const speed = useSimulationStore((s) => s.speed)
   const density = useSimulationStore((s) => s.density)
-  const clock = useSimulationStore((s) => s.stats?.clock ?? 7.5 * 3600)
+  const clock = useSimulationStore((s) => s.stats?.clock ?? s.startClock)
 
   if (status === 'error') {
     return (
@@ -44,7 +45,21 @@ export function SimulationBar() {
 
       <div className="sim-clock">
         <span className="sim-time">{ready ? formatClock(clock) : '--:--'}</span>
-        <span className="sim-period">{ready ? dayPeriod(clock) : 'Loading roads…'}</span>
+        <span className="sim-period">
+          {ready && (
+            <svg viewBox="0 0 16 16" aria-hidden="true" className="sun-icon">
+              {sunElevation(clock) > 0 ? (
+                <>
+                  <circle cx="8" cy="8" r="3" />
+                  <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1" />
+                </>
+              ) : (
+                <path d="M12.5 10.2A5 5 0 0 1 5.8 3.5a5 5 0 1 0 6.7 6.7z" />
+              )}
+            </svg>
+          )}
+          {ready ? dayPeriod(clock) : 'Loading networks…'}
+        </span>
       </div>
 
       <label className="sim-field sim-timeline">
@@ -85,9 +100,9 @@ export function SimulationBar() {
         </span>
         <input
           type="range"
-          min={100}
-          max={1500}
-          step={50}
+          min={500}
+          max={6000}
+          step={250}
           value={density}
           disabled={!ready}
           onChange={(e) => controller?.setDensity(Number(e.target.value))}

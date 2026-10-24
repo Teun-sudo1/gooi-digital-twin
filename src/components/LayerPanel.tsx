@@ -1,3 +1,4 @@
+import type { LightingMode } from '../features/map/lighting'
 import { LAYER_GROUPS } from '../features/map/layers'
 import { useAppStore } from '../store/useAppStore'
 
@@ -6,6 +7,13 @@ export function LayerPanel() {
   const setOpen = useAppStore((s) => s.setLayerPanelOpen)
   const visibility = useAppStore((s) => s.layerVisibility)
   const toggleLayer = useAppStore((s) => s.toggleLayer)
+  const lightingMode = useAppStore((s) => s.lightingMode)
+  const setLightingMode = useAppStore((s) => s.setLightingMode)
+  const modes: { id: LightingMode; label: string }[] = [
+    { id: 'auto', label: 'Sun' },
+    { id: 'day', label: 'Day' },
+    { id: 'night', label: 'Night' },
+  ]
 
   return (
     <aside className={`panel layer-panel ${open ? 'open' : ''}`}>
@@ -35,6 +43,23 @@ export function LayerPanel() {
               </label>
             </li>
           ))}
+          <li className="lighting">
+            <span id="lighting-label">Lighting</span>
+            <div className="segmented small" role="radiogroup" aria-labelledby="lighting-label">
+              {modes.map((m) => (
+                <button
+                  key={m.id}
+                  role="radio"
+                  aria-checked={lightingMode === m.id}
+                  className={lightingMode === m.id ? 'active' : undefined}
+                  title={m.id === 'auto' ? 'Follow the sun at the simulated time' : undefined}
+                  onClick={() => setLightingMode(m.id)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </li>
         </ul>
       )}
     </aside>

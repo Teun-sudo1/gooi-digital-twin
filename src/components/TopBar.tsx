@@ -12,7 +12,7 @@ export function TopBar() {
         <div className="brand-mark" aria-hidden="true" />
         <div>
           <h1>Gooi Digital Twin</h1>
-          <p>Huizen &amp; Gooi region · NL</p>
+          <p>Gooi region · Noord-Holland</p>
         </div>
       </div>
       <SearchBox />

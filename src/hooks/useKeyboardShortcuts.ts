@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { HUIZEN_VIEW } from '../data/places'
+import { REGION_VIEW } from '../data/places'
 import { flyToView, togglePitch } from '../features/map/camera'
 import { getRotator, resetNorth } from '../features/map/rotation'
 import { useAppStore } from '../store/useAppStore'
@@ -16,7 +16,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: ['Q', 'E'], description: 'Rotate left / right (hold)' },
   { keys: ['N'], description: 'Face north' },
   { keys: ['T'], description: 'Toggle 2D / 3D' },
-  { keys: ['H'], description: 'Reset view to Huizen' },
+  { keys: ['H'], description: 'Reset view to the region' },
   { keys: ['Space'], description: 'Play / pause simulation' },
   { keys: ['/'], description: 'Focus search' },
   { keys: ['?'], description: 'Show shortcuts' },
@@ -57,7 +57,7 @@ export function useKeyboardShortcuts() {
           togglePitch(map)
           break
         case 'h':
-          flyToView(map, HUIZEN_VIEW)
+          flyToView(map, REGION_VIEW)
           break
         case ' ': {
           // Buttons handle Space themselves; avoid toggling twice.

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { HUIZEN_VIEW } from '../data/places'
+import { REGION_VIEW } from '../data/places'
 import { flyToView, togglePitch } from '../features/map/camera'
 import { getRotator, resetNorth, ROTATE_STEP, rotateBy } from '../features/map/rotation'
 import { useMapInstance } from '../hooks/useMapInstance'
@@ -99,9 +99,9 @@ export function CameraControls() {
       </button>
       <button
         disabled={!map}
-        onClick={() => map && flyToView(map, HUIZEN_VIEW)}
-        aria-label="Reset view to Huizen"
-        title="Reset view to Huizen (H)"
+        onClick={() => map && flyToView(map, REGION_VIEW)}
+        aria-label="Reset view to the region"
+        title="Reset view to the region (H)"
       >
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path d="M2.5 7.5 8 3l5.5 4.5M4 6.5V13h8V6.5" />

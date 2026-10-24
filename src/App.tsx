@@ -1,5 +1,6 @@
 import { CameraControls } from './components/CameraControls'
 import { LayerPanel } from './components/LayerPanel'
+import { LightingController } from './components/LightingController'
 import { ShortcutsPanel } from './components/ShortcutsPanel'
 import { SimulationBar } from './components/SimulationBar'
 import { SimulationDashboard } from './components/SimulationDashboard'
@@ -25,6 +26,7 @@ export default function App() {
       <ShortcutsPanel />
       <SimulationBar />
       <StatusOverlay />
+      <LightingController />
     </div>
   )
 }

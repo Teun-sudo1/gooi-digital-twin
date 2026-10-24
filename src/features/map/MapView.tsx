@@ -8,15 +8,29 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { useEffect, useRef } from 'react'
-import { GOOI_BOUNDS, HUIZEN_VIEW } from '../../data/places'
+import { GOOI_BOUNDS, REGION_VIEW } from '../../data/places'
+import type { CameraView } from '../../types/geo'
 import { useAppStore } from '../../store/useAppStore'
 import { applyVisibility } from './layers'
-import { buildStyle } from './style'
+import { useSimulationStore } from '../../store/useSimulationStore'
+import { nightFactorFor } from './lighting'
+import { buildStyle, paletteFor } from './style'
 
 // MapLibre v6 looks for its tile-parsing worker next to its own module file.
 // Vite bundles the library, so the worker would not be found; point MapLibre
 // at a copy emitted by Vite instead (this works in dev and under the Pages base path).
 setWorkerUrl(workerUrl)
+
+/** Camera from a shared link (#zoom/lat/lng/bearing/pitch), if present. */
+function viewFromHash(): Partial<CameraView> {
+  const [zoom, lat, lng, bearing = 0, pitch = 0] = window.location.hash.slice(1).split('/').map(Number)
+  if (![zoom, lat, lng].every(Number.isFinite)) return {}
+  return { zoom, center: [lng, lat], bearing, pitch }
+}
+
+// Read once at start-up: MapLibre clears the URL hash when a map is removed,
+// which happens when React (StrictMode) mounts the map twice in development.
+const SHARED_VIEW = viewFromHash()
 
 function hasWebGL() {
   try {
@@ -48,8 +62,10 @@ export function MapView() {
 
     const instance = new MapLibreMap({
       container: containerRef.current,
-      style: buildStyle(),
-      ...HUIZEN_VIEW,
+      // Start in the right light for the simulated time, so there is no flash on load.
+      style: buildStyle(paletteFor(nightFactorFor(useAppStore.getState().lightingMode, useSimulationStore.getState().startClock))),
+      ...REGION_VIEW,
+      ...SHARED_VIEW,
       minZoom: 10,
       maxZoom: 19,
       maxPitch: 78,
@@ -76,6 +92,8 @@ export function MapView() {
     })
 
     setMap(instance)
+    // Handy for debugging in the browser console during development.
+    if (import.meta.env.DEV) (window as unknown as { map?: MapLibreMap }).map = instance
     return () => {
       setMap(null)
       setMapStatus('loading')
