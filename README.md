@@ -22,7 +22,8 @@ Everything runs in the browser as a static site. There is no backend.
 
 - 3D map of the whole Gooi region, with extruded buildings from OpenStreetMap
 - **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date (or the chosen season). Headlights come on after dusk. The layer panel can also force Day or Night.
-- **Aerial photos:** switch the base map to *Aerial* for the latest national aerial photography (PDOK Luchtfoto). Roads, labels and the simulation stay on top, and the photos dim at night.
+- **Map modes**, as in map apps: *Explore* (the plain map), *Driving* (streets coloured by congestion), *Transit* (bus and train routes and stops) and *Satellite* (aerial photos). They sit at the top of the map panel; the individual layer switches still work underneath.
+- **Aerial photos:** the *Satellite* mode shows the latest national aerial photography (PDOK Luchtfoto). Roads, labels and the simulation stay on top, and the photos dim at night.
 - **Weather and seasons:** *Live* weather (from Open-Meteo), or choose dry, rain, heavy rain, snow or fog. Rain and snow fall over the map, and the weather changes travel: rain moves cyclists into cars and buses and slows everyone down. The season (today's, or one you choose) colours the trees, from spring blossom to autumn leaves and bare winter branches, tints parks and woods, and sets the sun's path, so winter evenings are dark early.
 - Roads, rail, water, forests, parks and Dutch place and street names
 - **Trees:** the 9,000+ trees and tree rows mapped in OpenStreetMap at their real positions, and the Gooi's forests and woods filled with oaks, beeches, pines and spruces inside their real OSM outlines (the positions of individual forest trees are illustrative)

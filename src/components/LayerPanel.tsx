@@ -1,7 +1,9 @@
 import { SEASON_LABELS, WEATHER_LABELS, type SeasonSetting, type WeatherSetting } from '../features/environment/environment'
 import type { LightingMode } from '../features/map/lighting'
 import { LAYER_GROUPS } from '../features/map/layers'
+import { MAP_MODES } from '../features/map/mapModes'
 import { useAppStore } from '../store/useAppStore'
+import { MapModes } from './MapModes'
 
 export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
   const open = useAppStore((s) => s.layerPanelOpen)
@@ -14,7 +16,7 @@ export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
   const seasonSetting = useAppStore((s) => s.seasonSetting)
   const liveWeather = useAppStore((s) => s.liveWeather)
   const weather = useAppStore((s) => s.weather)
-  const basemap = useAppStore((s) => s.basemap)
+  const mapMode = useAppStore((s) => s.mapMode)
   const modes: { id: LightingMode; label: string }[] = [
     { id: 'auto', label: 'Sun' },
     { id: 'day', label: 'Day' },
@@ -30,7 +32,9 @@ export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
           aria-expanded={open}
           aria-controls="layer-list"
         >
-          <span>Layers</span>
+          <span>
+            Map · <span className="current-mode">{MAP_MODES.find((m) => m.id === mapMode)?.label}</span>
+          </span>
           <svg viewBox="0 0 16 16" aria-hidden="true" className="chevron">
             <path d="m4 6 4 4 4-4" />
           </svg>
@@ -38,6 +42,9 @@ export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
       )}
       {(open || embedded) && (
         <ul id="layer-list" className="layer-list">
+          <li>
+            <MapModes />
+          </li>
           {LAYER_GROUPS.map((group) => (
             <li key={group.id}>
               <label className="toggle">
@@ -51,23 +58,6 @@ export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
               </label>
             </li>
           ))}
-          <li className="lighting">
-            <span id="basemap-label">Base map</span>
-            <div className="segmented small" role="radiogroup" aria-labelledby="basemap-label">
-              {(['map', 'aerial'] as const).map((b) => (
-                <button
-                  key={b}
-                  role="radio"
-                  aria-checked={basemap === b}
-                  className={basemap === b ? 'active' : undefined}
-                  onClick={() => useAppStore.setState({ basemap: b })}
-                  title={b === 'aerial' ? 'Aerial photos of the Netherlands (PDOK Luchtfoto)' : undefined}
-                >
-                  {b === 'map' ? 'Map' : 'Aerial'}
-                </button>
-              ))}
-            </div>
-          </li>
           <li className="lighting">
             <span id="lighting-label">Lighting</span>
             <div className="segmented small" role="radiogroup" aria-labelledby="lighting-label">

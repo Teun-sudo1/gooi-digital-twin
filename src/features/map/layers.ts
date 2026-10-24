@@ -51,10 +51,11 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   labels: true,
   traffic: true,
   transit: true,
-  transitRoutes: true,
+  // Explore mode: congestion and transit routes come with the Driving and Transit modes.
+  transitRoutes: false,
   trees: true,
   streetLights: true,
-  congestion: true,
+  congestion: false,
 }
 
 /** Groups the aerial photos replace: drawing them would cover the photo. */

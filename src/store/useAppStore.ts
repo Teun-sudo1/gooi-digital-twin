@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { DEFAULT_VISIBILITY, type LayerVisibility } from '../features/map/layers'
 import { seasonOf, type LiveWeather, type Season, type SeasonSetting, type Weather, type WeatherSetting } from '../features/environment/environment'
 import type { Basemap } from '../features/map/layers'
+import { MAP_MODES, type MapMode } from '../features/map/mapModes'
 import type { LightingMode } from '../features/map/lighting'
 import type { LayerGroupId, MapStatus } from '../types/geo'
 
@@ -18,6 +19,8 @@ interface AppState {
   lightingMode: LightingMode
   /** Drawn map or aerial photos. */
   basemap: Basemap
+  /** The last chosen map mode (a preset of base map and layers). */
+  mapMode: MapMode
   weatherSetting: WeatherSetting
   seasonSetting: SeasonSetting
   liveWeather: LiveWeather | null
@@ -31,6 +34,7 @@ interface AppState {
   setLayerPanelOpen: (open: boolean) => void
   setShortcutsOpen: (open: boolean) => void
   setLightingMode: (mode: LightingMode) => void
+  setMapMode: (mode: MapMode) => void
 }
 
 
@@ -44,6 +48,7 @@ export const useAppStore = create<AppState>((set) => ({
   shortcutsOpen: false,
   lightingMode: 'auto',
   basemap: 'map',
+  mapMode: 'explore',
   weatherSetting: 'live',
   seasonSetting: 'auto',
   liveWeather: null,
@@ -59,4 +64,8 @@ export const useAppStore = create<AppState>((set) => ({
   setLayerPanelOpen: (layerPanelOpen) => set({ layerPanelOpen }),
   setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
   setLightingMode: (lightingMode) => set({ lightingMode }),
+  setMapMode: (mapMode) => {
+    const mode = MAP_MODES.find((m) => m.id === mapMode)!
+    set((state) => ({ mapMode, basemap: mode.basemap, layerVisibility: { ...state.layerVisibility, ...mode.layers } }))
+  },
 }))
