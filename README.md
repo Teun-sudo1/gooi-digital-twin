@@ -98,6 +98,7 @@ Panels move into a dock at the bottom: the simulation controls with tabs for *St
 
 | Key | Action |
 | --- | --- |
+| `W` `A` `S` `D` (hold) | Move forward / left / back / right (`Shift` for faster) |
 | `Q` / `E` (hold) | Rotate left / right |
 | `N` | Face north |
 | `T` | Toggle 2D / 3D |
