@@ -737,7 +737,7 @@ kbd {
 .trend svg {
   display: block;
   width: 100%;
-  height: 84px;
+  height: 96px;
   touch-action: none;
   cursor: crosshair;
 }
@@ -771,6 +771,68 @@ kbd {
   stroke: var(--border);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
+}
+
+.trend-expected {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.trend-band {
+  fill: var(--accent-soft);
+  opacity: 0.6;
+}
+
+.trend-now {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.7;
+}
+
+.trend-peak {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.trend-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.trend-key {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--accent);
+}
+
+.trend-key.dashed {
+  border-top: 1.5px dashed var(--text-muted);
+}
+
+.trend-key.band {
+  height: 9px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--accent-soft);
 }
 
 .trend-crosshair {

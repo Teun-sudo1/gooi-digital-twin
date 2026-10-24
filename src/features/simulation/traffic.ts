@@ -45,7 +45,7 @@ export const BIKE_PROFILE = [0.02, 0.01, 0.01, 0.01, 0.02, 0.05, 0.25, 0.95, 1.0
 export const FOOT_PROFILE = [0.05, 0.03, 0.02, 0.02, 0.02, 0.05, 0.15, 0.4, 0.5, 0.6, 0.8, 0.9, 1.0, 0.95, 0.9, 0.95, 0.9, 0.85, 0.75, 0.6, 0.45, 0.3, 0.15, 0.08]
 
 /** Bikes on the road at peak, per car at peak. Cycling is a large share of Dutch trips. */
-const BIKES_PER_CAR = 0.55
+export const BIKES_PER_CAR = 0.55
 /** Assumed average passenger-car emissions in kg CO2 per km. A rough figure, not a measurement. */
 export const CO2_KG_PER_KM = 0.15
 

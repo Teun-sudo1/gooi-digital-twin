@@ -1,7 +1,7 @@
 import type { Feature, LineString, Point } from 'geojson'
 import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl'
 import { useAppStore } from '../../store/useAppStore'
-import { useSimulationStore } from '../../store/useSimulationStore'
+import { DAY_SLOTS, emptyDay, SLOT_SECONDS, useSimulationStore } from '../../store/useSimulationStore'
 import {
   AGENT_STRIDE,
   Kind,
@@ -31,8 +31,6 @@ export const CONGESTION_COLOURS = ['#e2b203', '#f76808', '#c62a2f']
 const BUSY = 0.12
 const FONT = ['Noto Sans Regular']
 /** Simulated seconds between trend-chart samples. */
-const HISTORY_INTERVAL = 300
-const HISTORY_LENGTH = 144
 
 /** Vehicles are drawn at true scale from zoom 17 up, and larger than life below that. */
 const VEHICLE_SIZE: ExpressionSpecification = ['interpolate', ['exponential', 2], ['zoom'], 12, 0.45, 15, 0.65, 16, 0.75, 17, 0.85, 20, 5.44]
@@ -94,8 +92,9 @@ export class SimulationClient {
   private transitPool: Pool = []
   private labelPool: Pool = []
   private lastRender = 0
-  private lastSample = -1
-  private resetHistory = true
+  /** Running totals for the quarter hour the simulation is in. */
+  private slot = -1
+  private slotSum = { samples: 0, cars: 0, bikes: 0, speed: 0, delayed: 0 }
   private night = 0
   private disposed = false
   private viewportTimer = 0
@@ -148,15 +147,16 @@ export class SimulationClient {
     useSimulationStore.setState({ speed })
   }
 
+  /** Changes the amount of traffic; the day chart starts over, as earlier values no longer compare. */
   setDensity(density: number) {
     this.post({ type: 'density', density })
-    useSimulationStore.setState({ density })
+    this.slot = -1
+    useSimulationStore.setState({ density, day: emptyDay() })
   }
 
-  /** Jump to another time of day; the trend chart restarts because its timeline is broken. */
+  /** Jump to another time of day; the day chart keeps what it has and fills in the new time. */
   setClock(clock: number) {
     this.post({ type: 'clock', clock })
-    this.resetHistory = true
     // Show the chosen time immediately; cleared once the simulation reports it.
     useSimulationStore.setState({ draftClock: clock })
   }
@@ -332,23 +332,29 @@ export class SimulationClient {
       }
       case 'stats': {
         const { stats } = message
-        let { history } = useSimulationStore.getState()
-        const since = (stats.clock - this.lastSample + 86_400) % 86_400
-        if (this.resetHistory || since >= HISTORY_INTERVAL) {
-          const point = {
-            clock: stats.clock,
-            cars: stats.cars,
-            bikes: stats.bikes,
-            averageCarSpeedKmh: stats.averageCarSpeedKmh,
-            delayedCars: stats.delayedCars,
-          }
-          history = this.resetHistory ? [point] : [...history, point].slice(-HISTORY_LENGTH)
-          this.lastSample = stats.clock
-          this.resetHistory = false
+        // Average the samples per quarter hour; coming back to a quarter hour starts it afresh.
+        const slot = Math.floor(stats.clock / SLOT_SECONDS) % DAY_SLOTS
+        const sum = this.slotSum
+        if (slot !== this.slot) {
+          this.slot = slot
+          Object.assign(sum, { samples: 0, cars: 0, bikes: 0, speed: 0, delayed: 0 })
+        }
+        sum.samples++
+        sum.cars += stats.cars
+        sum.bikes += stats.bikes
+        sum.speed += stats.averageCarSpeedKmh
+        sum.delayed += stats.delayedCars
+        const day = [...useSimulationStore.getState().day]
+        day[slot] = {
+          clock: slot * SLOT_SECONDS,
+          cars: sum.cars / sum.samples,
+          bikes: sum.bikes / sum.samples,
+          averageCarSpeedKmh: sum.speed / sum.samples,
+          delayedCars: sum.delayed / sum.samples,
         }
         const { draftClock } = useSimulationStore.getState()
         const caughtUp = draftClock === null || Math.abs(((stats.clock - draftClock + 129_600) % 86_400) - 43_200) < 120
-        useSimulationStore.setState({ stats, history, draftClock: caughtUp ? null : draftClock })
+        useSimulationStore.setState({ stats, day, draftClock: caughtUp ? null : draftClock })
         break
       }
     }

@@ -2,20 +2,38 @@ import { useState } from 'react'
 import { BUSIER, QUIETER } from '../features/scenarios/useComparisonLayer'
 import { CONGESTION_COLOURS } from '../features/simulation/client'
 import { CAR_COLOURS, CLOTHING_COLOURS } from '../features/simulation/icons'
-import { CO2_KG_PER_KM } from '../features/simulation/traffic'
-import { type HistoryPoint, useSimulationStore } from '../store/useSimulationStore'
-import type { Comparison, ComparisonSide } from '../types/simulation'
+import { WEATHER_EFFECTS } from '../features/environment/environment'
+import { BIKE_PROFILE, BIKES_PER_CAR, CAR_PROFILE, CO2_KG_PER_KM, profileAt } from '../features/simulation/traffic'
+import { useAppStore } from '../store/useAppStore'
+import { type HistoryPoint, selectClock, useSimulationStore } from '../store/useSimulationStore'
+import type { Comparison, ComparisonSide, WeatherEffects } from '../types/simulation'
 import { formatCount, formatDecimal } from '../utils/format'
-import { TrendChart } from './TrendChart'
+import { DayChart } from './DayChart'
 
 type Metric = 'cars' | 'bikes' | 'speed' | 'delayed'
 
+/** `expected`: what the model's demand profile aims for at a time of day, for the given density and weather. */
 const METRICS: Record<
   Metric,
-  { label: string; value: (p: HistoryPoint) => number; format: (v: number) => string }
+  {
+    label: string
+    value: (p: HistoryPoint) => number
+    format: (v: number) => string
+    expected?: (clock: number, density: number, weather: WeatherEffects) => number
+  }
 > = {
-  cars: { label: 'Cars', value: (p) => p.cars, format: (v) => formatCount(Math.round(v)) },
-  bikes: { label: 'Bikes', value: (p) => p.bikes, format: (v) => formatCount(Math.round(v)) },
+  cars: {
+    label: 'Cars',
+    value: (p) => p.cars,
+    format: (v) => formatCount(Math.round(v)),
+    expected: (clock, density, w) => density * w.carDemand * profileAt(CAR_PROFILE, clock),
+  },
+  bikes: {
+    label: 'Bikes',
+    value: (p) => p.bikes,
+    format: (v) => formatCount(Math.round(v)),
+    expected: (clock, density, w) => density * BIKES_PER_CAR * w.bikeDemand * profileAt(BIKE_PROFILE, clock),
+  },
   speed: { label: 'Car speed', value: (p) => p.averageCarSpeedKmh, format: (v) => `${formatDecimal(v)} km/h` },
   delayed: { label: 'Delayed', value: (p) => p.delayedCars, format: (v) => formatCount(Math.round(v)) },
 }
@@ -109,7 +127,10 @@ function ComparisonTable({ comparison }: { comparison: Comparison }) {
 export function SimulationDashboard({ embedded = false }: { embedded?: boolean }) {
   const status = useSimulationStore((s) => s.status)
   const stats = useSimulationStore((s) => s.stats)
-  const history = useSimulationStore((s) => s.history)
+  const day = useSimulationStore((s) => s.day)
+  const clock = useSimulationStore(selectClock)
+  const density = useSimulationStore((s) => s.density)
+  const weather = useAppStore((s) => s.weather)
   const lines = useSimulationStore((s) => s.lines)
   const timetableDate = useSimulationStore((s) => s.timetableDate)
   const comparison = useSimulationStore((s) => s.comparison)
@@ -120,6 +141,9 @@ export function SimulationDashboard({ embedded = false }: { embedded?: boolean }
 
   const co2 = stats?.estimatedCo2Kg ?? 0
   const selected = METRICS[metric]
+  const expectedFor = selected.expected
+  const expected = expectedFor && ((c: number) => expectedFor(c, density, WEATHER_EFFECTS[weather]))
+  const coverage = day.filter(Boolean).length / day.length
   const scheduledTrips = lines.reduce((sum, l) => sum + (l.schedule === 'timetable' ? l.tripsPerDay : 0), 0)
   const timetableDay = timetableDate
     ? new Date(`${timetableDate.slice(0, 4)}-${timetableDate.slice(4, 6)}-${timetableDate.slice(6)}T12:00:00Z`).toLocaleDateString('en-GB', {
@@ -200,12 +224,19 @@ export function SimulationDashboard({ embedded = false }: { embedded?: boolean }
                   </button>
                 ))}
               </div>
-              <TrendChart
-                points={history}
+              <DayChart
+                points={day}
                 value={selected.value}
                 format={selected.format}
-                label={`${selected.label} (simulated) over simulated time`}
+                expected={expected}
+                now={clock}
+                label={`${selected.label} (simulated) over the day`}
               />
+              {coverage < 0.5 && (
+                <p className="sim-note small">
+                  The day fills in as simulated time passes. Speed up, or pick another time on the clock, to see more of it.
+                </p>
+              )}
 
               <ul className="vehicle-legend" aria-label="Map legend">
                 <li>

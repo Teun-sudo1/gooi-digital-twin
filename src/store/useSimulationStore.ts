@@ -3,7 +3,12 @@ import { amsterdamClockNow } from '../features/map/lighting'
 import type { SimulationClient } from '../features/simulation/client'
 import type { Comparison, FollowInfo, SimulationStats, StopBoard, TransitLineInfo } from '../types/simulation'
 
+/** The day chart keeps one averaged point per quarter of an hour. */
+export const DAY_SLOTS = 96
+export const SLOT_SECONDS = 86_400 / DAY_SLOTS
+
 export interface HistoryPoint {
+  /** Start of the quarter hour, in seconds since midnight. */
   clock: number
   cars: number
   bikes: number
@@ -25,7 +30,8 @@ interface SimulationState {
   density: number
   /** Throttled snapshot (about 4× per second), so React never renders per frame. */
   stats: SimulationStats | null
-  history: HistoryPoint[]
+  /** Simulated values per quarter hour of the day (null where the simulation hasn't been yet). */
+  day: (HistoryPoint | null)[]
   lines: TransitLineInfo[]
   /** Service date (YYYYMMDD) of the real timetable in use, or null when frequencies are assumed. */
   timetableDate: string | null
@@ -47,6 +53,10 @@ interface SimulationState {
   board: StopBoard | null
 }
 
+export function emptyDay(): (HistoryPoint | null)[] {
+  return new Array(DAY_SLOTS).fill(null)
+}
+
 export const SPEED_OPTIONS = [1, 5, 20, 60]
 
 export const useSimulationStore = create<SimulationState>(() => ({
@@ -58,7 +68,7 @@ export const useSimulationStore = create<SimulationState>(() => ({
   speed: 5,
   density: 3000,
   stats: null,
-  history: [],
+  day: emptyDay(),
   lines: [],
   timetableDate: null,
   draftClock: null,

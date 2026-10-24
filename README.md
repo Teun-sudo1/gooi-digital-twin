@@ -54,7 +54,7 @@ Everything runs in the browser as a static site. There is no backend.
 - Cars brake for corners, keep a time gap to the car ahead, and follow Dutch right of way: side roads give way, roundabout traffic goes first, and on equal roads traffic from the right has priority. Queues form on their own.
 - Weekday demand profiles per mode, with morning and evening rush hours, plus through traffic on the A1 and A27
 - Play/pause, clock and time-of-day scrubber, speed 1–60×, traffic density slider
-- A dashboard of **simulated** statistics: cars, cyclists, buses and trains in service, average speeds, car journey time, delayed cars, distance and estimated CO₂, plus a trend chart
+- A dashboard of **simulated** statistics: cars, cyclists, buses and trains in service, average speeds, car journey time, delayed cars, distance and estimated CO₂, plus a 24-hour chart of the simulated day against the expected (assumed) demand, with the rush hours shaded
 
 ### Road changes (scenarios)
 
@@ -114,7 +114,7 @@ Panels move into a dock at the bottom: the simulation controls with tabs for *St
 
 React 19 · TypeScript · Vite · MapLibre GL JS 6 · Zustand · Web Workers · Vitest · oxlint
 
-The trend chart is a small hand-written SVG component, so no charting library is needed.
+The day chart is a small hand-written SVG component, so no charting library is needed.
 
 ## Getting started
 
