@@ -57,7 +57,7 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   transitRoutes: false,
   trees: true,
   streetLights: true,
-  trafficLights: true,
+  trafficLights: false,
   congestion: false,
 }
 

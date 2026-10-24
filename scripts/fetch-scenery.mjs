@@ -5,7 +5,9 @@
  *   node scripts/fetch-scenery.mjs            # use cached Overpass responses if present
  *   node scripts/fetch-scenery.mjs --refresh  # download fresh data
  *
- * Trees:   individually mapped trees and tree rows from OSM, at their real
+ * Trees:   individually mapped trees and tree rows from OSM, plus the trees
+ *          the municipalities record in the BGT (Basisregistratie
+ *          Grootschalige Topografie, via the PDOK OGC API, CC0), at their real
  *          positions, plus the outlines of mapped forests and woods. The app
  *          fills those outlines with trees at runtime, so positions of
  *          forest trees are illustrative.
@@ -16,9 +18,73 @@
  *
  * Data © OpenStreetMap contributors, ODbL 1.0.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { BBOX, carSpeed, KX, KY, LAT0, LNG0, NETWORK_QUERY, OUT, overpass, project, simplify } from './osm-common.mjs'
+import { BBOX, CACHE, carSpeed, KX, KY, LAT0, LNG0, NETWORK_QUERY, OUT, overpass, project, simplify } from './osm-common.mjs'
+
+const BGT_TREES = 'https://api.pdok.nl/lv/bgt/ogc/v1/collections/vegetatieobject_punt/items'
+/** The region is fetched in tiles of this many degrees, a few at a time. */
+const BGT_TILE = 0.01
+const BGT_PARALLEL = 6
+
+/**
+ * Trees from the BGT (point vegetation objects of type "boom"), as
+ * [lng, lat] pairs, cached in scripts/.cache/bgt-trees.json.
+ */
+async function bgtTrees(refresh) {
+  const file = resolve(CACHE, 'bgt-trees.json')
+  if (!refresh) {
+    try {
+      return JSON.parse(await readFile(file, 'utf8'))
+    } catch {
+      // not cached yet
+    }
+  }
+  const [south, west, north, east] = BBOX
+  const tiles = []
+  for (let lng = west; lng < east - 1e-9; lng += BGT_TILE) {
+    for (let lat = south; lat < north - 1e-9; lat += BGT_TILE) {
+      tiles.push([lng, lat, Math.min(lng + BGT_TILE, east), Math.min(lat + BGT_TILE, north)].map((v) => v.toFixed(5)).join(','))
+    }
+  }
+  const points = []
+  let done = 0
+  const fetchTile = async (bbox) => {
+    let url = `${BGT_TREES}?f=json&limit=5000&bbox=${bbox}`
+    while (url) {
+      let json
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const response = await fetch(url, { headers: { Accept: 'application/geo+json' } })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          json = await response.json()
+          break
+        } catch (error) {
+          if (attempt >= 3) throw error
+          await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)))
+        }
+      }
+      for (const f of json.features ?? []) {
+        const p = f.properties
+        if (p.plus_type !== 'boom' || p.status !== 'bestaand' || p.eind_registratie || f.geometry?.type !== 'Point') continue
+        const [lng, lat] = f.geometry.coordinates
+        points.push([Math.round(lng * 1e6) / 1e6, Math.round(lat * 1e6) / 1e6])
+      }
+      url = json.links?.find((l) => l.rel === 'next')?.href ?? null
+    }
+    if (++done % 40 === 0) console.log(`  bgt: ${done}/${tiles.length} tiles, ${points.length} trees`)
+  }
+  console.log(`bgt: fetching trees in ${tiles.length} tiles from PDOK …`)
+  const queue = [...tiles]
+  await Promise.all(Array.from({ length: BGT_PARALLEL }, async () => {
+    while (queue.length) await fetchTile(queue.pop())
+  }))
+  // Points on a shared tile edge come back twice.
+  const unique = [...new Map(points.map((p) => [`${p[0]},${p[1]}`, p])).values()]
+  await mkdir(CACHE, { recursive: true })
+  await writeFile(file, JSON.stringify(unique))
+  return unique
+}
 
 const SCENERY_QUERY = `[out:json][timeout:180][bbox:${BBOX.join(',')}];
 (
@@ -152,6 +218,18 @@ function inside([x, y], ring) {
   return hit
 }
 
+function decodeRing(encoded) {
+  const ring = []
+  let x = 0
+  let y = 0
+  for (let i = 0; i < encoded.length; i += 2) {
+    x += encoded[i]
+    y += encoded[i + 1]
+    ring.push([x, y])
+  }
+  return ring
+}
+
 /** Integer metres, delta-encoded: [x0, y0, dx1, dy1, …]. */
 function encodeRing(ring) {
   const out = []
@@ -167,7 +245,7 @@ function encodeRing(ring) {
   return out
 }
 
-function buildTrees(raw) {
+function buildTrees(raw, bgt) {
   const trees = []
   const keep = spacingGrid(3.5)
   const addTree = (x, y, leaf, height) => {
@@ -208,7 +286,21 @@ function buildTrees(raw) {
       addPolygon(rings(member('outer')), rings(member('inner')), tags)
     }
   }
-  return { trees, polygons }
+
+  // BGT trees, except where OSM already has a tree, and inside forests (the app fills those).
+  const forests = polygons.map((p) => {
+    const ring = decodeRing(p.rings[0])
+    const xs = ring.map((q) => q[0])
+    const ys = ring.map((q) => q[1])
+    return { ring, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] }
+  })
+  const inForest = (pt) => forests.some(({ ring, box }) => pt[0] >= box[0] && pt[0] <= box[2] && pt[1] >= box[1] && pt[1] <= box[3] && inside(pt, ring))
+  const osmCount = trees.length
+  for (const [lng, lat] of bgt) {
+    const pt = project(lng, lat)
+    if (!inForest(pt)) addTree(pt[0], pt[1], 0, 0)
+  }
+  return { trees, polygons, osmCount }
 }
 
 // ---------------------------------------------------------------------------
@@ -286,18 +378,18 @@ async function main() {
   const refresh = process.argv.includes('--refresh')
   const scenery = await overpass('scenery', SCENERY_QUERY, refresh)
   const roads = await overpass('network', NETWORK_QUERY, false)
-  const { trees, polygons } = buildTrees(scenery)
+  const { trees, polygons, osmCount } = buildTrees(scenery, await bgtTrees(refresh))
   const { lamps, mapped } = buildLamps(scenery, roads)
   const file = {
     meta: {
       description: 'Trees and street lights for the Gooi Digital Twin map',
-      source: 'OpenStreetMap contributors, via the Overpass API',
-      license: 'ODbL 1.0 (https://www.openstreetmap.org/copyright)',
+      source: 'OpenStreetMap contributors, via the Overpass API; trees also from the BGT (Basisregistratie Grootschalige Topografie), via PDOK',
+      license: 'ODbL 1.0 (https://www.openstreetmap.org/copyright); BGT: CC0 1.0',
       osmTimestamp: scenery.osm3s?.timestamp_osm_base ?? null,
       generated: new Date().toISOString(),
       projection: { lng0: LNG0, lat0: LAT0, kx: KX, ky: KY, unit: 1 },
       note:
-        'Mapped trees and tree rows are at their OSM positions; forests are outlines the app fills with illustrative trees. ' +
+        'Mapped trees and tree rows are at their OSM or BGT positions; forests are outlines the app fills with illustrative trees. ' +
         'Mapped street lamps are marked source 1; other lamps (source 0) are placed by rule along lit streets and are illustrative.',
     },
     /** Per tree: x, y (delta), leaf type (0 unknown, 1 broadleaved, 2 needleleaved, 3 mixed), height in m (0 unknown). */
@@ -309,7 +401,7 @@ async function main() {
   }
   await mkdir(OUT, { recursive: true })
   await writeFile(resolve(OUT, 'gooi-scenery.json'), JSON.stringify(file))
-  console.log(`scenery: ${trees.length} mapped trees, ${polygons.length} forest polygons, ${lamps.length} lamps (${mapped} mapped)`)
+  console.log(`scenery: ${trees.length} mapped trees (${osmCount} OSM, ${trees.length - osmCount} BGT), ${polygons.length} forest polygons, ${lamps.length} lamps (${mapped} mapped)`)
 }
 
 main().catch((error) => {
