@@ -233,7 +233,7 @@ export interface Viewport {
 }
 
 export type ToWorker =
-  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; clock: number; density: number; speed: number; playing: boolean }
+  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; lanesUrl: string; lanes: boolean; clock: number; density: number; speed: number; playing: boolean }
   | { type: 'play'; playing: boolean }
   | { type: 'speed'; speed: number }
   | { type: 'density'; density: number }
@@ -246,6 +246,8 @@ export type ToWorker =
   | { type: 'weather'; effects: WeatherEffects }
   /** Traffic lights on, or right-of-way rules at every junction. */
   | { type: 'signals'; enabled: boolean }
+  /** Lanes from the map data, or one lane per direction everywhere. */
+  | { type: 'lanes'; enabled: boolean }
   /** Show the departure board of a line's stop (null closes it). */
   | { type: 'stop'; line: number | null; stop: number }
   /** Find the street (or junction) nearest to a point, within `radius` metres. */

@@ -69,7 +69,13 @@ describe('Gooi street network', () => {
 
 describe('street traffic', () => {
   const net = buildNetwork(networkFile)
-  const [west, south, east, north] = networkFile.meta.bbox
+  // The network itself: roads leaving the region run a little past its box.
+  const lngs = Array.from({ length: net.nodeCount }, (_, i) => toLngLat(net.projection, net.nodeX[i], net.nodeY[i]))
+  const margin = 0.002
+  const west = Math.min(...lngs.map((p) => p[0])) - margin
+  const east = Math.max(...lngs.map((p) => p[0])) + margin
+  const south = Math.min(...lngs.map((p) => p[1])) - margin
+  const north = Math.max(...lngs.map((p) => p[1])) + margin
 
   it('moves cars and bikes realistically and keeps them on the map', () => {
     const sim = new TrafficModel(net, { density: 2000, startClock: 8 * 3600, seed: 42 })
@@ -91,10 +97,10 @@ describe('street traffic', () => {
     const kinds = new Set<number>()
     for (let i = 0; i < n; i++) {
       const [lng, lat] = toLngLat(net.projection, frame[i * AGENT_STRIDE], frame[i * AGENT_STRIDE + 1])
-      expect(lng).toBeGreaterThan(west - 0.04)
-      expect(lng).toBeLessThan(east + 0.04)
-      expect(lat).toBeGreaterThan(south - 0.04)
-      expect(lat).toBeLessThan(north + 0.04)
+      expect(lng).toBeGreaterThan(west)
+      expect(lng).toBeLessThan(east)
+      expect(lat).toBeGreaterThan(south)
+      expect(lat).toBeLessThan(north)
       kinds.add(frame[i * AGENT_STRIDE + 3])
     }
     for (const kind of [Kind.Hatchback, Kind.Sedan, Kind.Suv, Kind.Van, Kind.Bike]) expect(kinds.has(kind)).toBe(true)

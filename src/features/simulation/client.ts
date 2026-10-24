@@ -135,6 +135,8 @@ export class SimulationClient {
       demandUrl: new URL('data/gooi-demand.json', base).href,
       signalsUrl: new URL('data/gooi-signals.json', base).href,
       signals: useAppStore.getState().layerVisibility.trafficLights,
+      lanesUrl: new URL('data/gooi-lanes.json', base).href,
+      lanes: useAppStore.getState().layerVisibility.lanes,
       clock: state.startClock,
       density: state.density,
       speed: state.speed,
@@ -147,6 +149,8 @@ export class SimulationClient {
     this.unsubscribe = useAppStore.subscribe((s, prev) => {
       const enabled = s.layerVisibility.trafficLights
       if (enabled !== prev.layerVisibility.trafficLights) this.post({ type: 'signals', enabled })
+      const lanes = s.layerVisibility.lanes
+      if (lanes !== prev.layerVisibility.lanes) this.post({ type: 'lanes', enabled: lanes })
     })
   }
 
