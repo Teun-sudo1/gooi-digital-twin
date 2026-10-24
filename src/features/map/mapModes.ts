@@ -24,7 +24,7 @@ export const MAP_MODES: MapModeInfo[] = [
   {
     id: 'driving',
     label: 'Driving',
-    description: 'Streets coloured by simulated congestion',
+    description: 'Busy streets coloured by simulated congestion',
     basemap: 'map',
     layers: { congestion: true, transitRoutes: false, traffic: true },
   },

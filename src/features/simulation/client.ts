@@ -25,8 +25,10 @@ const STOPS = 'transit-stops'
 const BUS_LABELS = 'sim-bus-labels'
 const FOLLOW_RING = 'sim-follow-ring'
 const CONGESTION = 'congestion'
-/** Free flowing → standing: green, yellow, orange, red. */
-export const CONGESTION_COLOURS = ['#30a46c', '#e2b203', '#f76808', '#c62a2f']
+/** Busy → standing: yellow, orange, red. Free-flowing streets aren't coloured. */
+export const CONGESTION_COLOURS = ['#e2b203', '#f76808', '#c62a2f']
+/** Share of time held up from which a street counts as busy. */
+const BUSY = 0.12
 const FONT = ['Noto Sans Regular']
 /** Simulated seconds between trend-chart samples. */
 const HISTORY_INTERVAL = 300
@@ -536,11 +538,12 @@ export class SimulationClient {
         type: 'line',
         source: CONGESTION,
         minzoom: 11,
+        filter: ['>=', ['get', 'level'], BUSY],
         layout: { 'line-cap': 'round', 'line-join': 'round', visibility: show(visibility.congestion) },
         paint: {
           'line-color': [
             'interpolate', ['linear'], ['get', 'level'],
-            0.05, CONGESTION_COLOURS[0], 0.2, CONGESTION_COLOURS[1], 0.4, CONGESTION_COLOURS[2], 0.65, CONGESTION_COLOURS[3],
+            BUSY, CONGESTION_COLOURS[0], 0.35, CONGESTION_COLOURS[1], 0.6, CONGESTION_COLOURS[2],
           ],
           'line-width': ['interpolate', ['exponential', 1.5], ['zoom'], 11, 1.5, 14, 3, 17, 6],
           'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.8, 17, 0.55],

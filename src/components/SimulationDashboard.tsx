@@ -232,9 +232,9 @@ export function SimulationDashboard({ embedded = false }: { embedded?: boolean }
                   <span className="swatch" style={{ background: '#ff2a1a' }} />
                   Brake lights
                 </li>
-                <li className="congestion-key" title="Share of time cars on a street spend held up (simulated)">
-                  Streets:
-                  {['free', 'slow', 'queuing', 'jammed'].map((label, i) => (
+                <li className="congestion-key" title="Share of time cars on a street spend held up (simulated); free-flowing streets aren't coloured">
+                  Busy streets:
+                  {['slow', 'queuing', 'jammed'].map((label, i) => (
                     <span key={label}>
                       <span className="swatch line" style={{ background: CONGESTION_COLOURS[i] }} />
                       {label}

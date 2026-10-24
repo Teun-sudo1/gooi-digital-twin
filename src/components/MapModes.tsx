@@ -35,10 +35,10 @@ function Thumbnail({ mode }: { mode: MapMode }) {
       {mode === 'driving' && (
         <>
           <path d="M-4 52 L68 8" stroke="#b9c0c9" strokeWidth="9" />
-          <path d="M-4 52 L22 36" stroke="#30a46c" strokeWidth="6" />
-          <path d="M22 36 L42 24" stroke="#f76808" strokeWidth="6" />
+          <path d="M-4 52 L68 8" stroke="#ffffff" strokeWidth="6" />
+          <path d="M14 41 L28 32" stroke="#e2b203" strokeWidth="6" />
+          <path d="M28 32 L42 24" stroke="#f76808" strokeWidth="6" />
           <path d="M42 24 L68 8" stroke="#c62a2f" strokeWidth="6" />
-          <path d="M-4 24 L68 36" stroke="#e2b203" strokeWidth="3" />
         </>
       )}
       {mode === 'transit' && (
