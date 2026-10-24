@@ -31,3 +31,4 @@ dist-ssr
 # Test output
 playwright-report
 test-results
+scripts/.cache
