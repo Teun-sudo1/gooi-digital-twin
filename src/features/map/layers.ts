@@ -4,10 +4,13 @@ import type { LayerGroup, LayerGroupId } from '../../types/geo'
 /** User-facing layer toggles, each mapped onto the style layers in style.ts. */
 export const LAYER_GROUPS: LayerGroup[] = [
   { id: 'traffic', label: 'Cars, bikes & pedestrians', layerIds: ['sim-agents', 'sim-headlights'] },
-  { id: 'transit', label: 'Buses & trains', layerIds: ['sim-transit', 'sim-trains'] },
+  { id: 'transit', label: 'Buses & trains', layerIds: ['sim-transit', 'sim-trains', 'sim-bus-labels'] },
   // Only the map display of routes and stops; buses and trains keep running either way.
   { id: 'transitRoutes', label: 'Transit routes & stops', layerIds: ['transit-routes', 'transit-stops'] },
   { id: 'buildings', label: '3D buildings', layerIds: ['buildings-3d'] },
+  // Drawn by the scenery layer (src/features/scenery), which follows these toggles itself.
+  { id: 'trees', label: 'Trees', layerIds: [] },
+  { id: 'streetLights', label: 'Street lighting', layerIds: [] },
   {
     id: 'roads',
     label: 'Roads',
@@ -48,6 +51,8 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   traffic: true,
   transit: true,
   transitRoutes: true,
+  trees: true,
+  streetLights: true,
 }
 
 export function applyVisibility(map: MapLibreMap, visibility: LayerVisibility) {

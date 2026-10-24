@@ -9,6 +9,7 @@ import { StatusOverlay } from './components/StatusOverlay'
 import { TopBar } from './components/TopBar'
 import { MapView } from './features/map/MapView'
 import { useScenarioEditing } from './features/scenarios/useScenarioEditing'
+import { useScenery } from './features/scenery/useScenery'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useTrafficSimulation } from './hooks/useTrafficSimulation'
 
@@ -16,6 +17,7 @@ export default function App() {
   useTrafficSimulation()
   useKeyboardShortcuts()
   useScenarioEditing()
+  useScenery()
 
   return (
     <div className="app">

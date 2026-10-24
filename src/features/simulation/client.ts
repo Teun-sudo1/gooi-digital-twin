@@ -21,6 +21,7 @@ const AGENTS = 'sim-agents'
 const TRANSIT = 'sim-transit'
 const ROUTES = 'transit-routes'
 const STOPS = 'transit-stops'
+const BUS_LABELS = 'sim-bus-labels'
 const FONT = ['Noto Sans Regular']
 /** Simulated seconds between trend-chart samples. */
 const HISTORY_INTERVAL = 300
@@ -84,6 +85,7 @@ export class SimulationClient {
   private lines: TransitLineInfo[] = []
   private agentPool: Pool = []
   private transitPool: Pool = []
+  private labelPool: Pool = []
   private lastRender = 0
   private lastSample = -1
   private resetHistory = true
@@ -174,10 +176,10 @@ export class SimulationClient {
     this.map.off('moveend', this.sendViewport)
     window.clearTimeout(this.viewportTimer)
     if (!this.map.getStyle()) return
-    for (const layer of ['sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
+    for (const layer of [BUS_LABELS, 'sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
       if (this.map.getLayer(layer)) this.map.removeLayer(layer)
     }
-    for (const source of [AGENTS, TRANSIT, ROUTES, STOPS]) {
+    for (const source of [AGENTS, TRANSIT, ROUTES, STOPS, BUS_LABELS]) {
       if (this.map.getSource(source)) this.map.removeSource(source)
     }
   }
@@ -271,7 +273,10 @@ export class SimulationClient {
     this.lastRender = now
 
     // Close up, agents are 3D models; further out, flat icons (cheaper and easier to see).
-    if (zoom >= MODEL_MIN_ZOOM - 0.25) this.renderModels(agents, agentCount, transit, transitCount)
+    if (zoom >= MODEL_MIN_ZOOM - 0.25) {
+      this.renderModels(agents, agentCount, transit, transitCount)
+      this.renderBusLabels(transit, transitCount)
+    }
     if (zoom >= MODEL_MIN_ZOOM + 0.25) return
 
     const fill = (pool: Pool, data: Float32Array, count: number, transitLayer: boolean) => {
@@ -301,6 +306,29 @@ export class SimulationClient {
 
     this.map.getSource<GeoJSONSource>(AGENTS)?.setData({ type: 'FeatureCollection', features: fill(this.agentPool, agents, agentCount, false) })
     this.map.getSource<GeoJSONSource>(TRANSIT)?.setData({ type: 'FeatureCollection', features: fill(this.transitPool, transit, transitCount, true) })
+  }
+
+  /** Line number badges above the 3D buses. */
+  private renderBusLabels(transit: Float32Array, transitCount: number) {
+    const projection = this.projection!
+    let n = 0
+    for (let i = 0; i < transitCount; i++) {
+      const o = i * AGENT_STRIDE
+      if (transit[o + 3] !== Kind.Bus) continue
+      const line = this.lines[transit[o + 4]]
+      if (!line) continue
+      let feature = this.labelPool[n]
+      if (!feature) {
+        feature = { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: {} }
+        this.labelPool[n] = feature
+      }
+      feature.geometry.coordinates = toLngLat(projection, transit[o], transit[o + 1])
+      feature.properties.r = line.ref
+      feature.properties.c = line.colour
+      feature.properties.t = readableOn(line.colour)
+      n++
+    }
+    this.map.getSource<GeoJSONSource>(BUS_LABELS)?.setData({ type: 'FeatureCollection', features: this.labelPool.slice(0, n) })
   }
 
   /** Builds per-instance data for the 3D layer, grouped by kind. */
@@ -493,5 +521,29 @@ export class SimulationClient {
     this.models = new AgentLayer(this.projection!.lng0, this.projection!.lat0)
     this.models.setNight(this.night)
     map.addLayer(this.models, map.getLayer('label-water') ? 'label-water' : undefined)
+
+    // Line numbers float above the 3D buses, on top of everything.
+    map.addSource(BUS_LABELS, { type: 'geojson', data: empty })
+    map.addLayer({
+      id: BUS_LABELS,
+      type: 'symbol',
+      source: BUS_LABELS,
+      minzoom: MODEL_MIN_ZOOM,
+      layout: {
+        'icon-image': ['concat', 'badge-', ['get', 'c']],
+        'icon-text-fit': 'both',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'text-field': ['get', 'r'],
+        'text-font': FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 18, 14],
+        'text-anchor': 'bottom',
+        'text-offset': [0, -1.1],
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+        visibility: show(visibility.transit),
+      },
+      paint: { 'text-color': ['get', 't'] },
+    })
   }
 }

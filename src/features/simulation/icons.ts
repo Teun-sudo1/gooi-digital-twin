@@ -184,6 +184,30 @@ export function agentIcon(kind: number, colour: number, flags: number): string {
   return name
 }
 
+/** Rounded badge in a line colour, stretched around the line number (icon-text-fit). */
+function registerBadge(map: MapLibreMap, colour: string) {
+  const name = `badge-${colour}`
+  if (map.hasImage(name)) return
+  const w = 24 * RATIO
+  const h = 20 * RATIO
+  const ctx = document.createElement('canvas').getContext('2d')!
+  ctx.canvas.width = w
+  ctx.canvas.height = h
+  ctx.beginPath()
+  ctx.roundRect(RATIO, RATIO, w - 2 * RATIO, h - 2 * RATIO, 7 * RATIO)
+  ctx.fillStyle = colour
+  ctx.fill()
+  ctx.lineWidth = 1.5 * RATIO
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+  ctx.stroke()
+  map.addImage(name, ctx.getImageData(0, 0, w, h), {
+    pixelRatio: RATIO,
+    stretchX: [[8 * RATIO, 16 * RATIO]],
+    stretchY: [[8 * RATIO, 12 * RATIO]],
+    content: [5 * RATIO, 3 * RATIO, 19 * RATIO, 17 * RATIO],
+  })
+}
+
 export function registerIcons(map: MapLibreMap, lines: TransitLineInfo[]) {
   for (const kind of [Kind.Hatchback, Kind.Sedan, Kind.Suv, Kind.Van, Kind.Truck]) {
     CAR_COLOURS.forEach((colour, c) => {
@@ -195,7 +219,11 @@ export function registerIcons(map: MapLibreMap, lines: TransitLineInfo[]) {
     register(map, `bike-${c}`, drawBike(colour))
     register(map, `ped-${c}`, drawPedestrian(colour))
   })
-  for (const line of lines) if (line.mode === 'bus') register(map, `bus-${line.colour}`, drawBus(line.colour))
+  for (const line of lines) {
+    if (line.mode !== 'bus') continue
+    register(map, `bus-${line.colour}`, drawBus(line.colour))
+    registerBadge(map, line.colour)
+  }
   register(map, 'train-0', drawTrainCar(0))
   register(map, 'train-1', drawTrainCar(1))
   register(map, 'beam', drawBeam())

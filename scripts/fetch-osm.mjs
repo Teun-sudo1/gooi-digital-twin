@@ -13,120 +13,22 @@
  *
  * Data © OpenStreetMap contributors, ODbL 1.0.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const CACHE = resolve(ROOT, 'scripts/.cache')
-const OUT = resolve(ROOT, 'public/data')
-
-// south, west, north, east: Hilversum to the Gooimeer, Naarden to Eemnes.
-const BBOX = [52.19, 5.12, 52.33, 5.32]
+import { mkdir, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { BBOX, carSpeed, KX, KY, LAT0, LNG0, NETWORK_QUERY, OUT, overpass, polylineLength, project, simplify } from './osm-common.mjs'
 // Transit geometry is kept a little beyond the street network, so trains and
 // buses visibly arrive from and leave towards the rest of the country.
 const TRANSIT_BBOX = [52.17, 5.08, 52.35, 5.36]
-
-const ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-]
-
-const NETWORK_QUERY = `[out:json][timeout:180];
-way["highway"]["area"!="yes"](${BBOX.join(',')});
-out geom;`
 
 const TRANSIT_QUERY = `[out:json][timeout:180];
 relation["type"="route"]["route"~"^(bus|train)$"](${BBOX.join(',')});
 out geom(${TRANSIT_BBOX.join(',')});`
 
-// Local metric projection shared with the app: x east, y north, in metres.
-const LNG0 = (BBOX[1] + BBOX[3]) / 2
-const LAT0 = (BBOX[0] + BBOX[2]) / 2
-const KX = 111_320 * Math.cos((LAT0 * Math.PI) / 180)
-const KY = 110_574
-const project = (lng, lat) => [(lng - LNG0) * KX, (lat - LAT0) * KY]
 /** Coordinates are stored as integer decimetres. */
 const dm = (v) => Math.round(v * 10)
 
 // ---------------------------------------------------------------------------
-// Download
-
-async function overpass(name, query, refresh) {
-  const file = resolve(CACHE, `${name}.json`)
-  if (!refresh) {
-    try {
-      return JSON.parse(await readFile(file, 'utf8'))
-    } catch {
-      // not cached yet
-    }
-  }
-  for (const endpoint of ENDPOINTS) {
-    try {
-      console.log(`${name}: querying ${endpoint} …`)
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'gooi-digital-twin/0.2 (+https://github.com/Teun-sudo1/gooi-digital-twin)',
-        },
-        body: new URLSearchParams({ data: query }),
-      })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const json = await response.json()
-      await mkdir(CACHE, { recursive: true })
-      await writeFile(file, JSON.stringify(json))
-      return json
-    } catch (error) {
-      console.warn(`  failed: ${error.message}`)
-    }
-  }
-  throw new Error(`All Overpass endpoints failed for ${name}.`)
-}
-
-// ---------------------------------------------------------------------------
 // Geometry helpers
-
-/** Douglas–Peucker simplification of a polyline in metres, keeping both ends. */
-function simplify(points, tolerance) {
-  if (points.length <= 2) return points
-  const keep = new Uint8Array(points.length)
-  keep[0] = keep[points.length - 1] = 1
-  const stack = [[0, points.length - 1]]
-  while (stack.length) {
-    const [a, b] = stack.pop()
-    const [ax, ay] = points[a]
-    const [bx, by] = points[b]
-    const len = Math.hypot(bx - ax, by - ay)
-    let worst = -1
-    let index = -1
-    for (let i = a + 1; i < b; i++) {
-      // Distance to the chord; for a closed loop (both ends equal) the distance to that point.
-      const d =
-        len < 1e-6
-          ? Math.hypot(points[i][0] - ax, points[i][1] - ay)
-          : Math.abs((bx - ax) * (ay - points[i][1]) - (ax - points[i][0]) * (by - ay)) / len
-      if (d > worst) {
-        worst = d
-        index = i
-      }
-    }
-    if (worst > tolerance) {
-      keep[index] = 1
-      stack.push([a, index], [index, b])
-    }
-  }
-  return points.filter((_, i) => keep[i])
-}
-
-function polylineLength(points) {
-  let length = 0
-  for (let i = 1; i < points.length; i++) {
-    length += Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1])
-  }
-  return length
-}
 
 /** Delta-encodes points as integer decimetres: [x0, y0, dx1, dy1, …]. */
 function encode(points, startX = 0, startY = 0) {
@@ -183,13 +85,6 @@ const SKIP_SERVICE = new Set(['driveway', 'parking_aisle', 'drive-through', 'eme
 const YES = new Set(['yes', 'designated', 'permissive', 'destination'])
 const NO = new Set(['no', 'private', 'use_sidepath', 'dismount'])
 
-const DEFAULT_SPEED = {
-  motorway: 100, motorway_link: 60, trunk: 80, trunk_link: 50, primary: 50, primary_link: 50,
-  secondary: 50, secondary_link: 50, tertiary: 50, tertiary_link: 50, unclassified: 50,
-  residential: 30, living_street: 15,
-}
-const ZONE_SPEEDS = { 'NL:urban': 50, 'NL:rural': 80, 'NL:zone30': 30, 'NL:zone60': 60, 'NL:motorway': 100 }
-
 // Flag bits per segment (also used by the app).
 const CAR_FWD = 1
 const CAR_BWD = 2
@@ -197,16 +92,6 @@ const BIKE_FWD = 4
 const BIKE_BWD = 8
 const FOOT_ANY = 16
 const ROUNDABOUT = 32
-
-function carSpeed(tags) {
-  const raw = tags.maxspeed
-  if (raw) {
-    if (ZONE_SPEEDS[raw]) return ZONE_SPEEDS[raw]
-    const n = Number.parseFloat(raw)
-    if (Number.isFinite(n) && n > 0) return Math.round(raw.includes('mph') ? n * 1.609 : n)
-  }
-  return DEFAULT_SPEED[tags.highway] ?? 50
-}
 
 function permissions(tags) {
   const hw = tags.highway

@@ -23,12 +23,18 @@ Everything runs in the browser as a static site. There is no backend.
 - 3D map of the whole Gooi region, with extruded buildings from OpenStreetMap
 - **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date. Headlights come on after dusk. The layer panel can also force Day or Night.
 - Roads, rail, water, forests, parks and Dutch place and street names
+- **Trees:** the 9,000+ trees and tree rows mapped in OpenStreetMap at their real positions, and the Gooi's forests and woods filled with oaks, beeches, pines and spruces inside their real OSM outlines (the positions of individual forest trees are illustrative)
+- **Street lighting:** lamp posts along lit streets, with warm pools of light on the road after dark; from far away the towns glow. About 150 lamps are mapped in OSM; the other ~34,000 are placed by rule (see [limitations](#known-limitations))
 - Layer toggles, including **Transit routes & stops**, which only changes the map display: buses and trains keep running
 - Rotate buttons (tap or hold), compass, 2D/3D toggle, reset view, keyboard shortcuts (press `?`)
 - One-click views of each town; address search through the PDOK Locatieserver
 - The camera is kept in the URL, so views can be shared
 
 ![The Gooi region on a weekday morning](docs/screenshot-region-day.png)
+
+![Woods around the Bussummerheide](docs/screenshot-forest.png)
+
+![Street lighting in Huizen at night](docs/screenshot-street-lights.png)
 
 ### Simulated traffic
 
@@ -64,7 +70,7 @@ When the network changes, every trip whose remaining route is no longer allowed 
 
 - **Buses and trains run on their real routes and stops** from OpenStreetMap: Transdev's Gooi lines, R-net 320/321, Hilversum city lines, U-OV and Keolis lines, and NS Intercity and Sprinter services
 - **Real timetables:** every trip on a normal weekday comes from the national GTFS feed (2,363 trips). Vehicles pass their stops at the scheduled times, pause at each stop and ease in between. Night buses and seasonal lines don't run on that weekday, so they don't appear.
-- Buses carry their line colour and number. Trains are drawn carriage by carriage in NS yellow and blue.
+- Buses carry their line colour, and a badge with the line number floats above every bus. Trains are drawn carriage by carriage in NS yellow and blue.
 
 ![Huizen at dusk, with an R-net bus](docs/screenshot-huizen-dusk.png)
 
@@ -116,15 +122,17 @@ src/
   features/map/         MapLibre map, day/night palettes, sun position, layers, camera, rotation
   features/simulation/  network, routing, traffic and transit models, worker, map client, icons
   features/scenarios/   road edits: scenario network, map layers, editing tools
+  features/scenery/     trees and street lights: data, 3D models and layer
   hooks/ store/ types/ utils/ data/
-public/data/            gooi-network.json, gooi-transit.json (generated, committed)
-scripts/                fetch-osm.mjs, fetch-timetables.mjs
+public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json (generated, committed)
+scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, osm-common.mjs
 ```
 
 - **Data build (offline).** `scripts/fetch-osm.mjs` downloads all streets and paths in the Gooi from the Overpass API. It splits them at junctions, works out car, bike and foot access in each direction, and keeps each mode's connected network. Roads leaving the area stay connected through a virtual "outside world" node, so through traffic works. It also extracts bus and train route relations, stitching their ways into continuous lines and projecting the stops onto them. `scripts/fetch-timetables.mjs` then streams the national GTFS feed. It matches every trip serving the Gooi to its OSM route variant by line number or train series, stop positions and stop order, and stores the trip's stop times. The outputs are compact (≈1 MB gzipped together) and are committed.
 - **Simulation in a Web Worker.** Routing and stepping thousands of agents run off the main thread, so the map stays smooth. About 30 times a second the worker sends the positions of visible agents as a typed array. Close up, the main thread uploads them as instances to a custom WebGL layer (`agentLayer.ts`, one instanced draw call per agent kind, low-poly models in `models.ts`). Zoomed out, they go through MapLibre symbol layers. There are no DOM elements per vehicle, and React only gets statistics, four times a second.
 - **Routing.** Car and bike trips start or end in about 250–400 destination zones per mode. Each zone has a cached shortest-path tree (one Dijkstra, about 4 ms), so a new trip's route is a pointer walk. Pedestrians use A* over short distances.
 - **Transit** positions are a pure function of the clock (timetable interpolation), so time jumps are instant.
+- **Trees and street lights** are drawn by a second instanced WebGL layer (`sceneryLayer.ts`), but only in 250 m cells near the camera (up to 110,000 trees and 12,000 lamps). Forest cells are generated on demand from the OSM outlines on a jittered 7.5 m grid, a few per frame, and cached. The light pools are a MapLibre circle layer that fades in with the night.
 - **Road changes.** The main thread sends the whole scenario (closed or restricted segments, speed limits, new cycle paths) to the worker. The worker rebuilds the network from the original file (about 25 ms), clears the mode bits and changes the speeds of the edited streets, and appends new cycle paths after the original segments, so existing edge ids stay valid. Cached path trees are dropped. Trips whose remaining route is no longer allowed are rerouted a few at a time (at most 6 ms per step). Picking a street under the pointer also happens in the worker, on the original geometry.
 
 ## Data sources and attribution
@@ -133,6 +141,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs
 | --- | --- | --- |
 | Basemap: roads, buildings, water, land use, labels | [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, via [OpenMapTiles](https://openmaptiles.org/) vector tiles hosted by [OpenFreeMap](https://openfreemap.org/) | ODbL; OpenMapTiles schema CC-BY |
 | Street network, bus and train routes and stops | OpenStreetMap contributors, via the [Overpass API](https://overpass-api.de/) | ODbL 1.0 |
+| Trees, forests, street lamps | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-scenery.mjs`) | ODbL 1.0 |
 | Bus and train timetables | [OVapi GTFS](https://gtfs.ovapi.nl/) (Stichting OpenGeo), from NDOV Loket open data | CC0 1.0 |
 | Address and place search | [PDOK Locatieserver](https://www.pdok.nl/) (Kadaster) | Dutch government open data |
 
@@ -148,6 +157,7 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 - CO₂ is a rough estimate (cars only, 150 g/km).
 - Agents are drawn larger than true scale (1.5× at street level, more when zoomed out) so they stay visible, so they can look crowded in queues.
 - Building heights are approximate where OSM has no height data.
+- **Scenery is partly illustrative.** Mapped trees and tree rows are at their OSM positions (OSM covers only some street trees), but trees inside forests are placed on a jittered grid within the real outlines. Only about 150 street lamps are mapped in OSM; the rest are placed every 24–40 m along streets tagged as lit, or, without a tag, along urban streets with a limit of 50 km/h or less. Real lamp positions, heights and spacing differ. Trees and lamps are drawn from zoom 14 and 15.
 
 ## Roadmap
 
@@ -159,8 +169,9 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 ## Refreshing the data
 
 ```bash
-npm run data            # streets, transit routes, then timetables (uses cached downloads)
+npm run data            # streets, transit routes, timetables, then trees and lights (uses cached downloads)
 node scripts/fetch-osm.mjs --refresh          # force fresh OSM data
+node scripts/fetch-scenery.mjs --refresh      # force fresh trees, forests and lamps
 node scripts/fetch-timetables.mjs --refresh   # force a fresh GTFS feed (~240 MB)
 node scripts/fetch-timetables.mjs --date 20261104   # use another service day
 ```
