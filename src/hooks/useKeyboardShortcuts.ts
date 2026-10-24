@@ -21,6 +21,9 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: ['/'], description: 'Focus search' },
   { keys: ['?'], description: 'Show shortcuts' },
   { keys: ['Shift', '←→↑↓'], description: 'Rotate and tilt (map focused)' },
+  { keys: ['Esc'], description: 'Stop editing roads / cancel a cycle path' },
+  { keys: ['Enter'], description: 'Finish the cycle path being drawn' },
+  { keys: ['⌫'], description: 'Undo the last bend of a cycle path' },
 ]
 
 const ROTATE_KEYS: Record<string, -1 | 1> = { q: -1, e: 1 }

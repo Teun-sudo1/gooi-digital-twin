@@ -2,12 +2,20 @@
 import {
   AGENT_STRIDE,
   type FromWorker,
+  type Intervention,
   type NetworkFile,
   type ToWorker,
   type TransitFile,
   type Viewport,
 } from '../../types/simulation'
-import { buildNetwork, fetchJson } from './network'
+import {
+  buildScenarioNetwork,
+  nearestJunction,
+  pickSegment,
+  validInterventions,
+  type ScenarioNetwork,
+} from '../scenarios/scenarioNetwork'
+import { fetchJson } from './network'
 import { TrafficModel } from './traffic'
 import { TransitModel } from './transit'
 
@@ -16,6 +24,7 @@ import { TransitModel } from './transit'
  * of agents never stalls map interaction. About 30 times a second it posts
  * the positions of visible agents as a transferable Float32Array. It waits
  * for the main thread to acknowledge each frame before sending the next.
+ * Road edits arrive as a whole scenario, which rebuilds the street network.
  */
 
 declare const self: DedicatedWorkerGlobalScope
@@ -25,6 +34,8 @@ const TICK_MS = 33
 const MAX_SUBSTEP = 0.5
 const STATS_INTERVAL = 250
 
+let networkFile: NetworkFile | null = null
+let scenario: ScenarioNetwork | null = null
 let traffic: TrafficModel | null = null
 let transit: TransitModel | null = null
 let playing = true
@@ -76,23 +87,49 @@ function tick() {
 
 async function init(message: Extract<ToWorker, { type: 'init' }>) {
   try {
-    const [networkFile, transitFile] = await Promise.all([
+    const [file, transitFile] = await Promise.all([
       fetchJson<NetworkFile>(message.networkUrl),
       fetchJson<TransitFile>(message.transitUrl),
     ])
-    const net = buildNetwork(networkFile)
-    traffic = new TrafficModel(net, { density: message.density, startClock: message.clock, seed: Date.now() })
+    networkFile = file
+    scenario = buildScenarioNetwork(file, [])
+    traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now() })
     transit = new TransitModel(transitFile)
     traffic.viewport = viewport
     playing = message.playing
     speed = message.speed
     traffic.populate()
-    post({ type: 'ready', projection: networkFile.meta.projection, lines: transit.infos, timetableDate: transit.timetableDate })
+    post({ type: 'ready', projection: file.meta.projection, lines: transit.infos, timetableDate: transit.timetableDate })
     lastTick = performance.now()
     tick()
   } catch (error) {
     post({ type: 'error', message: error instanceof Error ? error.message : String(error) })
   }
+}
+
+function applyScenario(list: Intervention[]) {
+  if (!networkFile || !traffic || !scenario) return
+  const interventions = validInterventions(networkFile, list)
+  const previous = scenario.pathIds
+  const next = buildScenarioNetwork(networkFile, interventions)
+  // Cycle paths are appended in order: if one was removed, later path edges changed id.
+  const pathsKept = previous.every((id, i) => next.pathIds[i] === id)
+  scenario = next
+  // Counts run for the whole scenario and restart when the original network is restored.
+  traffic.setNetwork(next.net, pathsKept ? Infinity : next.baseEdges, interventions.length === 0)
+  lastStats = 0
+}
+
+function pick(message: Extract<ToWorker, { type: 'pick' }>) {
+  if (!scenario) return
+  const [lng, lat] = message.lngLat
+  const radius = Math.min(Math.max(message.radius, 1), 500)
+  post({
+    type: 'pick',
+    id: message.id,
+    segment: message.target === 'segment' ? pickSegment(scenario, lng, lat, radius, message.mask) : null,
+    junction: message.target === 'junction' ? nearestJunction(scenario, lng, lat, radius) : null,
+  })
 }
 
 self.onmessage = (event: MessageEvent<ToWorker>) => {
@@ -119,6 +156,12 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'ack':
       awaitingAck = false
+      break
+    case 'scenario':
+      applyScenario(message.interventions)
+      break
+    case 'pick':
+      pick(message)
       break
   }
 }

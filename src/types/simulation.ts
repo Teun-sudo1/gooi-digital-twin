@@ -130,14 +130,36 @@ export interface TransitLineInfo {
   stops: [number, number][]
 }
 
-export type Intervention =
-  | { kind: 'close-road'; segment: number }
-  | { kind: 'speed-limit'; segment: number; speedLimitKmh: number }
+// ---------------------------------------------------------------------------
+// Scenarios: changes to the street network made on the map (milestone 3)
 
-export interface Scenario {
-  id: string
-  name: string
-  interventions: Intervention[]
+/** Who may still use a street after an edit. Buses are timetable-driven and unaffected. */
+export type RoadAccess = 'closed' | 'no-cars' | 'foot-only' | 'bus-only'
+
+export type Intervention =
+  | { kind: 'access'; segment: number; access: RoadAccess }
+  | { kind: 'speed'; segment: number; kmh: number }
+  /** A new two-way cycle path (also open to pedestrians) between two junctions. */
+  | { kind: 'cycle-path'; id: string; from: number; to: number; points: [number, number][] }
+
+/** A street segment found under the pointer, described for the map and the edit list. */
+export interface SegmentInfo {
+  segment: number
+  /** Set when the segment is a cycle path added in the scenario. */
+  pathId: string | null
+  name: string | null
+  roadClass: string
+  coordinates: [number, number][]
+  car: boolean
+  bike: boolean
+  foot: boolean
+  /** Speed limit in the original network (0 when cars are not allowed). */
+  speedKmh: number
+}
+
+export interface JunctionInfo {
+  node: number
+  coordinates: [number, number]
 }
 
 export interface SimulationStats {
@@ -157,6 +179,10 @@ export interface SimulationStats {
   bikeKilometres: number
   /** Cars only; see CO2_KG_PER_KM. */
   estimatedCo2Kg: number
+  /** Trips given a new route because of the current road changes. */
+  reroutedTrips: number
+  /** Trips that lost every way to their destination and left the network. */
+  strandedTrips: number
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +205,9 @@ export type ToWorker =
   | { type: 'clock'; clock: number }
   | { type: 'viewport'; viewport: Viewport }
   | { type: 'ack' }
+  | { type: 'scenario'; interventions: Intervention[] }
+  /** Find the street (or junction) nearest to a point, within `radius` metres. */
+  | { type: 'pick'; id: number; target: 'segment' | 'junction'; lngLat: [number, number]; radius: number; mask: number }
 
 /** Floats per agent in a frame: x, y, bearing, kind, colour, flags. */
 export const AGENT_STRIDE = 6
@@ -190,3 +219,4 @@ export type FromWorker =
   | { type: 'error'; message: string }
   | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number }
   | { type: 'stats'; stats: SimulationStats }
+  | { type: 'pick'; id: number; segment: SegmentInfo | null; junction: JunctionInfo | null }

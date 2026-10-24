@@ -6,7 +6,10 @@ import {
   AGENT_STRIDE,
   Kind,
   type FromWorker,
+  type Intervention,
+  type JunctionInfo,
   type Projection,
+  type SegmentInfo,
   type ToWorker,
   type TransitLineInfo,
 } from '../../types/simulation'
@@ -40,6 +43,11 @@ const AGENT_SIZE: ExpressionSpecification = [
 const TRAIN_SIZE: ExpressionSpecification = ['interpolate', ['exponential', 2], ['zoom'], 14, 0.085, 20, 5.44]
 
 type Pool = Feature<Point, Record<string, string | number>>[]
+
+export interface PickResult {
+  segment: SegmentInfo | null
+  junction: JunctionInfo | null
+}
 
 const rgb = (hex: string): [number, number, number] => {
   const n = Number.parseInt(hex.slice(1), 16)
@@ -84,6 +92,9 @@ export class SimulationClient {
   private viewportTimer = 0
   private models: AgentLayer | null = null
   private instances = new Float32Array(0)
+  private scenario: Intervention[] = []
+  private picks = new Map<number, (result: PickResult) => void>()
+  private nextPick = 1
 
   constructor(map: MapLibreMap) {
     this.map = map
@@ -131,6 +142,20 @@ export class SimulationClient {
     useSimulationStore.setState({ draftClock: clock })
   }
 
+  /** Replace the road edits in the simulation (an empty list restores the original network). */
+  setScenario(interventions: Intervention[]) {
+    this.scenario = interventions
+    if (this.projection) this.post({ type: 'scenario', interventions })
+  }
+
+  /** Nearest street matching `mask` (SegmentFlag bits) or nearest cycling junction, within `radius` metres. */
+  pick(target: 'segment' | 'junction', lngLat: [number, number], radius: number, mask = 0): Promise<PickResult> {
+    if (!this.projection) return Promise.resolve({ segment: null, junction: null })
+    const id = this.nextPick++
+    this.post({ type: 'pick', id, target, lngLat, radius, mask })
+    return new Promise((resolve) => this.picks.set(id, resolve))
+  }
+
   /** 0 = day, 1 = night: fades vehicle headlights in and out. */
   setNight(night: number) {
     this.night = night
@@ -143,6 +168,8 @@ export class SimulationClient {
   dispose() {
     this.disposed = true
     this.worker.terminate()
+    for (const resolve of this.picks.values()) resolve({ segment: null, junction: null })
+    this.picks.clear()
     this.map.off('move', this.onMove)
     this.map.off('moveend', this.sendViewport)
     window.clearTimeout(this.viewportTimer)
@@ -192,6 +219,7 @@ export class SimulationClient {
         this.addLayers()
         this.setNight(this.night)
         this.sendViewport()
+        if (this.scenario.length) this.post({ type: 'scenario', interventions: this.scenario })
         useSimulationStore.setState({ status: 'ready', lines: message.lines, timetableDate: message.timetableDate })
         break
       case 'error':
@@ -200,6 +228,10 @@ export class SimulationClient {
           status: 'error',
           error: 'The street and transit networks could not be loaded, so the simulation is unavailable.',
         })
+        break
+      case 'pick':
+        this.picks.get(message.id)?.({ segment: message.segment, junction: message.junction })
+        this.picks.delete(message.id)
         break
       case 'frame':
         this.render(message.agents, message.agentCount, message.transit, message.transitCount)

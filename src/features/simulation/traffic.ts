@@ -6,7 +6,7 @@ import {
   type Viewport,
 } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
-import { findRoute, TreeCache, type Closures, type Route } from './routing'
+import { findRoute, TreeCache, type Route } from './routing'
 
 /*
  * Street traffic: cars (five vehicle types), bicycles and pedestrians on the
@@ -25,6 +25,9 @@ import { findRoute, TreeCache, type Closures, type Route } from './routing'
  *   keep a time gap to the car ahead. Bikes follow bikes; pedestrians walk.
  * - Pedestrians are only simulated around the area being viewed, which keeps
  *   the cost proportional to what can be seen.
+ * - When the road network changes (a scenario edit), trips whose remaining
+ *   route is no longer allowed are rerouted from the end of the street they
+ *   are on, a few at a time; trips with no way left leave the network.
  */
 
 const DAY = 86_400
@@ -79,6 +82,8 @@ const ZONE_CELL = 1100
 const JOURNEY_SAMPLE = 200
 const PEDESTRIAN_MIN_ZOOM = 15
 const MAX_PEDESTRIANS = 450
+/** Wall-clock time per step spent rerouting trips after a network change. */
+const REROUTE_BUDGET_MS = 6
 
 export interface Agent {
   id: number
@@ -96,6 +101,12 @@ export interface Agent {
   length: number
   /** Metres to the right of the street centreline. */
   lateral: number
+  /** Final junction of the trip. */
+  dest: number
+  /** True when `dest` is a destination zone, so a cached path tree can reroute the trip. */
+  destIsZone: boolean
+  /** Set when a network change made the rest of the route invalid. */
+  needsRoute: boolean
   departedAt: number
   slowFor: number
   braking: boolean
@@ -207,7 +218,7 @@ export interface TrafficOptions {
 }
 
 export class TrafficModel {
-  readonly net: Network
+  net: Network
   clock: number
   density: number
   agents: Agent[] = []
@@ -217,7 +228,10 @@ export class TrafficModel {
   private nextId = 1
   private budget = [0, 0, 0]
   private trees: TreeCache
-  private closed: Closures = null
+  private treeCapacity: number
+  private pendingReroutes = 0
+  private rerouted = 0
+  private stranded = 0
   private zones: [Zones, Zones]
   private footNodes: Int32Array
   private carKm = 0
@@ -231,7 +245,8 @@ export class TrafficModel {
     this.density = options.density ?? 3000
     this.clock = options.startClock ?? 8 * 3600
     this.random = createRandom(options.seed ?? 1)
-    this.trees = new TreeCache(net, options.treeCapacity ?? 300)
+    this.treeCapacity = options.treeCapacity ?? 300
+    this.trees = new TreeCache(net, this.treeCapacity)
     this.zones = [buildZones(net, Mode.Car), buildZones(net, Mode.Bike)]
     const foot: number[] = []
     for (let i = 0; i < net.nodeCount; i++) {
@@ -289,16 +304,91 @@ export class TrafficModel {
     for (const agent of this.agents) agent.departedAt += delta
   }
 
-  setClosures(closed: Closures) {
-    this.closed = closed
-    this.trees.setClosures(closed)
+  /**
+   * Switch to a changed street network (a scenario edit). Edge ids below
+   * `staleEdgesFrom` must mean the same in both networks; agents on a later
+   * edge leave, and agents whose remaining route uses one are rerouted.
+   * `resetCounts` restarts the rerouted / stranded statistics.
+   */
+  setNetwork(net: Network, staleEdgesFrom = Infinity, resetCounts = false) {
+    this.net = net
+    this.trees = new TreeCache(net, this.treeCapacity)
+    if (resetCounts) {
+      this.rerouted = 0
+      this.stranded = 0
+    }
+    this.pendingReroutes = 0
+    const survivors: Agent[] = []
+    for (const a of this.agents) {
+      if (a.edges[a.idx] >= staleEdgesFrom) {
+        this.stranded++
+        continue
+      }
+      a.needsRoute = !this.routeAllowed(a, staleEdgesFrom)
+      if (a.needsRoute) this.pendingReroutes++
+      survivors.push(a)
+    }
+    this.agents = survivors
   }
 
   step(dt: number) {
     this.clock = (this.clock + dt) % DAY
     this.trees.builtThisTick = 0
+    if (this.pendingReroutes) this.reroutePending()
     this.spawnAll(dt)
     this.move(dt)
+  }
+
+  // -------------------------------------------------------------------------
+  // Rerouting after network changes
+
+  private routeAllowed(a: Agent, staleEdgesFrom: number) {
+    const bit = MODE_BIT[a.mode]
+    for (let k = a.idx + 1; k < a.edges.length; k++) {
+      const e = a.edges[k]
+      if (e >= staleEdgesFrom || !(this.net.edgeModes[e] & bit)) return false
+    }
+    return true
+  }
+
+  /** New route from the end of the agent's current street to its destination. */
+  private reroute(a: Agent): boolean {
+    a.needsRoute = false
+    const net = this.net
+    const current = a.edges[a.idx]
+    const from = net.edgeTo[current]
+    let route: Route | null = null
+    if (from !== a.dest) {
+      route =
+        a.destIsZone && a.mode !== Mode.Foot
+          ? this.trees.get(a.mode, a.dest, 'to').route(from)
+          : findRoute(net, a.mode, from, a.dest)
+      if (!route) return false
+    }
+    const edges = new Int32Array(1 + (route?.edges.length ?? 0))
+    edges[0] = current
+    if (route) edges.set(route.edges, 1)
+    a.edges = edges
+    a.idx = 0
+    this.rerouted++
+    return true
+  }
+
+  private reroutePending() {
+    const started = performance.now()
+    let left = 0
+    const stranded = new Set<Agent>()
+    for (const a of this.agents) {
+      if (!a.needsRoute) continue
+      if (performance.now() - started > REROUTE_BUDGET_MS) left++
+      else if (!this.reroute(a)) stranded.add(a)
+    }
+    this.pendingReroutes = left
+    if (stranded.size) {
+      // No way left to the destination: the trip leaves the network.
+      this.stranded += stranded.size
+      this.agents = this.agents.filter((a) => !stranded.has(a))
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -340,13 +430,13 @@ export class TrafficModel {
       if (mode === Mode.Bike && distance > 7000) continue
       const route = this.route(mode, a, b, trip.toZone, treeBudget)
       if (!route) continue
-      this.launch(mode, route, midTrip)
+      this.launch(mode, route, midTrip, trip.toZone)
       return true
     }
     return false
   }
 
-  private launch(mode: Mode, route: Route, midTrip: boolean) {
+  private launch(mode: Mode, route: Route, midTrip: boolean, destIsZone = false) {
     const net = this.net
     let idx = 0
     let offset = 0
@@ -407,6 +497,9 @@ export class TrafficModel {
       accel,
       length,
       lateral: this.lateralFor(mode, edge),
+      dest: net.edgeTo[route.edges[route.edges.length - 1]],
+      destIsZone,
+      needsRoute: false,
       departedAt: this.clock - elapsed,
       slowFor: 0,
       braking: false,
@@ -454,7 +547,7 @@ export class TrafficModel {
       const b = this.nearestFootNode(x + Math.cos(angle) * reach, y + Math.sin(angle) * reach)
       if (a < 0 || b < 0 || a === b) continue
       if (Math.hypot(net.nodeX[a] - net.nodeX[b], net.nodeY[a] - net.nodeY[b]) < 100) continue
-      const route = findRoute(net, Mode.Foot, a, b, this.closed)
+      const route = findRoute(net, Mode.Foot, a, b)
       if (!route || route.lengthMeters > 2500) continue
       this.launch(Mode.Foot, route, midTrip)
       return
@@ -592,7 +685,16 @@ export class TrafficModel {
       if (a.mode === Mode.Car) this.carKm += travelled / 1000
       else if (a.mode === Mode.Bike) this.bikeKm += travelled / 1000
       let arrived = false
-      while (a.offset >= edgeLength(net, a.edges[a.idx])) {
+      while (!arrived && a.offset >= edgeLength(net, a.edges[a.idx])) {
+        // Reaching the end of a street before the queued reroute: decide now.
+        if (a.needsRoute && a.idx + 1 < a.edges.length) {
+          this.pendingReroutes--
+          if (!this.reroute(a)) {
+            this.stranded++
+            arrived = true
+            break
+          }
+        }
         a.offset -= edgeLength(net, a.edges[a.idx])
         if (++a.idx >= a.edges.length) {
           arrived = true
@@ -601,7 +703,7 @@ export class TrafficModel {
         a.lateral = this.lateralFor(a.mode, a.edges[a.idx])
       }
       if (arrived) {
-        if (a.mode === Mode.Car) {
+        if (a.mode === Mode.Car && a.idx >= a.edges.length) {
           this.journeys.push((((this.clock - a.departedAt) % DAY) + DAY) % DAY)
           if (this.journeys.length > JOURNEY_SAMPLE) this.journeys.shift()
         }
@@ -682,6 +784,8 @@ export class TrafficModel {
       carKilometres: this.carKm,
       bikeKilometres: this.bikeKm,
       estimatedCo2Kg: this.carKm * CO2_KG_PER_KM,
+      reroutedTrips: this.rerouted,
+      strandedTrips: this.stranded,
     }
   }
 }

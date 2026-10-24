@@ -5,7 +5,7 @@ model output, not measured traffic. Only the networks and the bus and train
 timetables are real.
 
 - `network.ts`: decodes `public/data/gooi-network.json` into typed arrays (local metres) with per-mode directed edges
-- `routing.ts`: A* and cached shortest-path trees per mode, both with optional closed segments
+- `routing.ts`: A* and cached shortest-path trees per mode (road edits are applied to the network's edge modes and speeds, see `../scenarios`)
 - `traffic.ts`: cars (five types), bikes and pedestrians; demand, car-following, Dutch right of way, statistics
 - `transit.ts`: buses and trains on OSM routes, driven by real GTFS stop times (or assumed frequencies without them)
 - `sim.worker.ts`: runs the models in a Web Worker and streams visible agents as typed arrays

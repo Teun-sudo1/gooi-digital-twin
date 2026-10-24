@@ -6,47 +6,13 @@ import { nightFactor, sunElevation } from '../map/lighting'
 import { buildNetwork, edgeLength, toLngLat, type Network } from './network'
 import { findRoute, PathTree } from './routing'
 import { TrafficModel } from './traffic'
+import { tinyNetwork } from './testNetwork'
 import { TransitModel } from './transit'
 
 const read = <T,>(path: string) =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`../../../public/data/${path}`, import.meta.url)), 'utf8')) as T
 const networkFile = read<NetworkFile>('gooi-network.json')
 const transitFile = read<TransitFile>('gooi-transit.json')
-
-/**
- * Tiny synthetic network, 100 m blocks (coordinates in decimetres):
- *
- *   0 ── 1 ── 2
- *   │         │
- *   3 ──────► 4     3→4: one-way for cars, both ways for bikes and pedestrians
- */
-function tinyNetwork(): NetworkFile {
-  const all = 1 | 2 | 4 | 8 | 16
-  return {
-    meta: {
-      description: 'test',
-      source: 'test',
-      license: 'test',
-      osmTimestamp: null,
-      generated: '',
-      bbox: [5.19, 52.29, 5.21, 52.31],
-      projection: { lng0: 5.2, lat0: 52.3, kx: 68_000, ky: 110_574, unit: 0.1 },
-    },
-    classes: ['residential'],
-    names: [],
-    nodes: [0, 1000, 1000, 1000, 2000, 1000, 0, 0, 2000, 0],
-    segments: {
-      from: [0, 1, 0, 2, 3],
-      to: [1, 2, 3, 4, 4],
-      cls: [0, 0, 0, 0, 0],
-      name: [-1, -1, -1, -1, -1],
-      speed: [30, 30, 30, 30, 30],
-      flags: [all, all, all, all, 1 | 4 | 8 | 16],
-      way: [1, 2, 3, 4, 5],
-      geom: [[], [], [], [], []],
-    },
-  }
-}
 
 const segmentsOf = (net: Network, edges: Int32Array) => [...edges].map((e) => net.edgeSeg[e])
 const cost = (net: Network, mode: Mode, edges: Int32Array) =>
@@ -65,17 +31,9 @@ describe('routing per mode', () => {
     expect(segmentsOf(net, findRoute(net, Mode.Foot, 4, 3)!.edges)).toEqual([4])
   })
 
-  it('detours around closed streets', () => {
-    const closed = new Uint8Array(5)
-    closed[4] = 1
-    expect(segmentsOf(net, findRoute(net, Mode.Car, 3, 4, closed)!.edges)).toEqual([2, 0, 1, 3])
-    closed[0] = 1
-    expect(findRoute(net, Mode.Car, 3, 4, closed)).toBeNull()
-  })
-
   it('gives the same routes from path trees as from A*', () => {
-    expect(segmentsOf(net, new PathTree(net, Mode.Car, 3, 'to', null).route(4)!.edges)).toEqual([3, 1, 0, 2])
-    expect(segmentsOf(net, new PathTree(net, Mode.Car, 3, 'from', null).route(4)!.edges)).toEqual([4])
+    expect(segmentsOf(net, new PathTree(net, Mode.Car, 3, 'to').route(4)!.edges)).toEqual([3, 1, 0, 2])
+    expect(segmentsOf(net, new PathTree(net, Mode.Car, 3, 'from').route(4)!.edges)).toEqual([4])
   })
 })
 
@@ -94,7 +52,7 @@ describe('Gooi street network', () => {
     for (let i = 0; i < 25; i++) {
       const home = car.homes[(i * 7919) % car.homes.length]
       const zone = car.zones[(i * 104_729) % car.zones.length]
-      const viaTree = new PathTree(net, Mode.Car, zone, 'to', null).route(home)
+      const viaTree = new PathTree(net, Mode.Car, zone, 'to').route(home)
       const direct = findRoute(net, Mode.Car, home, zone)
       expect(viaTree === null).toBe(direct === null)
       if (!viaTree || !direct) continue

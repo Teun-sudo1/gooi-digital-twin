@@ -28,8 +28,8 @@ export const useAppStore = create<AppState>((set) => ({
   mapStatus: 'loading',
   mapError: null,
   layerVisibility: DEFAULT_VISIBILITY,
-  // Start collapsed on phone-sized screens so the map stays visible.
-  layerPanelOpen: typeof window === 'undefined' || window.innerWidth > 640,
+  // Start collapsed unless there is room for it beside the road-changes panel.
+  layerPanelOpen: typeof window === 'undefined' || (window.innerWidth > 640 && window.innerHeight > 1100),
   shortcutsOpen: false,
   lightingMode: 'auto',
 

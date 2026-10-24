@@ -12,7 +12,7 @@ A living geographic model of the Gooi that can be explored in 3D and extended ov
 
 1. **Real 3D map** of the region (done)
 2. **Living city:** clearly labelled *simulated* cars, bikes, pedestrians, buses and trains on the real networks (done)
-3. **Interactive infrastructure:** road closures, speed limits, cycle paths, bus lanes and housing scenarios that change the simulation, with the original scenario always restorable (next)
+3. **Interactive infrastructure:** road closures, speed limits, car-free and pedestrian streets, bus-only roads and new cycle paths that change the simulation, with the original network always restorable (done; scenario comparison and sharing next)
 
 Everything runs in the browser as a static site. There is no backend.
 
@@ -42,6 +42,24 @@ Everything runs in the browser as a static site. There is no backend.
 - Play/pause, clock and time-of-day scrubber, speed 1–60×, traffic density slider
 - A dashboard of **simulated** statistics: cars, cyclists, buses and trains in service, average speeds, car journey time, delayed cars, distance and estimated CO₂, plus a trend chart
 
+### Road changes (scenarios)
+
+Change the street network on the map and watch simulated traffic adapt:
+
+- **Close road:** nobody can use the street any more
+- **Car-free:** cars are banned; cyclists and pedestrians can still use the street
+- **Pedestrians only:** walking only (works on streets and cycle paths)
+- **Bus only:** cars and bikes are banned (pedestrians keep the pavement)
+- **Speed limit:** 30, 50, 60, 80 or 100 km/h. Routes prefer faster streets, so a lower limit also moves traffic elsewhere.
+- **New cycle path:** draw a two-way path between two junctions, with bends. It's open to cyclists and pedestrians.
+- **Undo on street**, an undo button per change, and **Restore original network**
+
+Pick a tool in the **Road changes** panel, then click streets on the map; the street under the pointer is highlighted first. Clicking a street again with the same tool undoes that change. Changes are drawn on the map in the tool's colour, with the new speed limit as a label.
+
+When the network changes, every trip whose remaining route is no longer allowed is rerouted from the end of the street it is on. New trips plan their routes on the changed network. The panel shows how many trips were rerouted and how many had no way left. Buses and trains keep to their timetables and don't react to road changes yet.
+
+![Road changes near Hilversum station: a closed street (red), a 30 km/h limit, a car-free street (green) and a new cycle path (teal)](docs/screenshot-road-changes.png)
+
 ### Public transport on real routes and timetables
 
 - **Buses and trains run on their real routes and stops** from OpenStreetMap: Transdev's Gooi lines, R-net 320/321, Hilversum city lines, U-OV and Keolis lines, and NS Intercity and Sprinter services
@@ -61,6 +79,8 @@ Everything runs in the browser as a static site. There is no backend.
 | `Space` | Play / pause simulation |
 | `/` | Focus search |
 | `?` | Show shortcuts |
+| `Esc` | Stop editing roads / cancel a cycle path |
+| `Enter` / `Backspace` | Finish the cycle path / undo its last bend |
 
 ## Technology
 
@@ -95,7 +115,7 @@ src/
   components/           UI: top bar, search, panels, simulation bar, dashboard, chart
   features/map/         MapLibre map, day/night palettes, sun position, layers, camera, rotation
   features/simulation/  network, routing, traffic and transit models, worker, map client, icons
-  features/scenarios/   (milestone 3)
+  features/scenarios/   road edits: scenario network, map layers, editing tools
   hooks/ store/ types/ utils/ data/
 public/data/            gooi-network.json, gooi-transit.json (generated, committed)
 scripts/                fetch-osm.mjs, fetch-timetables.mjs
@@ -105,6 +125,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs
 - **Simulation in a Web Worker.** Routing and stepping thousands of agents run off the main thread, so the map stays smooth. About 30 times a second the worker sends the positions of visible agents as a typed array. Close up, the main thread uploads them as instances to a custom WebGL layer (`agentLayer.ts`, one instanced draw call per agent kind, low-poly models in `models.ts`). Zoomed out, they go through MapLibre symbol layers. There are no DOM elements per vehicle, and React only gets statistics, four times a second.
 - **Routing.** Car and bike trips start or end in about 250–400 destination zones per mode. Each zone has a cached shortest-path tree (one Dijkstra, about 4 ms), so a new trip's route is a pointer walk. Pedestrians use A* over short distances.
 - **Transit** positions are a pure function of the clock (timetable interpolation), so time jumps are instant.
+- **Road changes.** The main thread sends the whole scenario (closed or restricted segments, speed limits, new cycle paths) to the worker. The worker rebuilds the network from the original file (about 25 ms), clears the mode bits and changes the speeds of the edited streets, and appends new cycle paths after the original segments, so existing edge ids stay valid. Cached path trees are dropped. Trips whose remaining route is no longer allowed are rerouted a few at a time (at most 6 ms per step). Picking a street under the pointer also happens in the worker, on the original geometry.
 
 ## Data sources and attribution
 
@@ -123,6 +144,7 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 - Buses and trains follow real timetables for one representative weekday (shown in the dashboard), but there is no live data: positions between stops are interpolated, and delays are not modelled. Transit vehicles don't interact with road traffic.
 - No traffic lights, lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other.
 - Pedestrians are only simulated around a street-level view (zoom 15+).
+- Road changes work per street segment (junction to junction), and only the model reacts to them: buses keep their timetable, and the demand doesn't change (no one decides to cycle because a road was closed). New cycle paths are straight lines between the points you click and don't cross other streets at grade. Changes are not saved when the page is reloaded.
 - CO₂ is a rough estimate (cars only, 150 g/km).
 - Agents are drawn larger than true scale (1.5× at street level, more when zoomed out) so they stay visible, so they can look crowded in queues.
 - Building heights are approximate where OSM has no height data.
@@ -131,7 +153,8 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 
 - [x] Milestone 1: interactive 3D map
 - [x] Milestone 2: multimodal simulation, real transit routes and timetables, day/night
-- [ ] Milestone 3: road closures that reroute traffic (`TrafficModel.setClosures` and closure-aware routing already exist; UI next), speed limits, cycle paths, bus lanes, pedestrian zones, housing developments, scenario comparison
+- [x] Milestone 3a: road closures, speed limits, car-free, pedestrian and bus-only streets, new cycle paths, with rerouting and restore
+- [ ] Next: before/after scenario comparison, saving and sharing scenarios in the link, housing developments, traffic lights, buses affected by road traffic
 
 ## Refreshing the data
 

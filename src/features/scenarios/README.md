@@ -1,9 +1,13 @@
 # Scenarios (milestone 3)
 
-Planned: interventions such as road closures and speed-limit changes that modify
-the network used by the simulation, with the option to restore the baseline.
+Road edits made on the map that change the street network used by the
+simulation. An empty scenario is the original network.
 
-Already in place: routing (`findRoute`, `PathTree`) accepts a set of closed
-segments, and `TrafficModel.setClosures()` applies one (both covered by tests).
-The UI and worker message are still to come. See the `Intervention` and
-`Scenario` types in `src/types/simulation.ts`.
+- `tools.ts`: the editing tools (close road, car-free, pedestrians only, bus only, speed limit, new cycle path, undo), their colours and which streets each applies to
+- `scenarioNetwork.ts`: worker side. Validates a scenario, rebuilds the network with the edits applied (new cycle paths are appended, so original edge ids stay stable), and picks the street or junction nearest to a point
+- `scenarioLayers.ts`: map layers for edits, the street under the pointer and a cycle path being drawn
+- `useScenarioEditing.ts`: pointer and keyboard interaction, and keeping the worker and the map in sync with `useScenarioStore`
+- `scenarios.test.ts`: routing on edited networks, picking, validation and rerouting of live traffic
+
+`TrafficModel.setNetwork()` swaps in the changed network and reroutes trips whose
+remaining route is no longer allowed.

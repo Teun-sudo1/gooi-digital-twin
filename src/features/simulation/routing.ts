@@ -62,11 +62,8 @@ export interface Route {
   freeFlowSeconds: number
 }
 
-/** Segments closed to all traffic (milestone 3 interventions). */
-export type Closures = Uint8Array | null
-
-const usable = (net: Network, e: number, bit: number, closed: Closures) =>
-  (net.edgeModes[e] & bit) !== 0 && !(closed && closed[net.edgeSeg[e]])
+// Road edits (closures, car-free streets) clear mode bits on the edges, so routing only checks those.
+const usable = (net: Network, e: number, bit: number) => (net.edgeModes[e] & bit) !== 0
 
 function finishRoute(net: Network, mode: Mode, edges: number[]): Route {
   let lengthMeters = 0
@@ -84,7 +81,7 @@ function finishRoute(net: Network, mode: Mode, edges: number[]): Route {
  * straight-line heuristic at the mode's top speed, which never overestimates
  * and so keeps routes optimal). Best for short or one-off trips.
  */
-export function findRoute(net: Network, mode: Mode, from: number, to: number, closed: Closures = null): Route | null {
+export function findRoute(net: Network, mode: Mode, from: number, to: number): Route | null {
   if (from === to) return null
   const bit = MODE_BIT[mode]
   const speed = net.edgeSpeed[mode]
@@ -107,7 +104,7 @@ export function findRoute(net: Network, mode: Mode, from: number, to: number, cl
     done[u] = 1
     for (let k = net.outStart[u]; k < net.outStart[u + 1]; k++) {
       const e = net.outEdges[k]
-      if (!usable(net, e, bit, closed)) continue
+      if (!usable(net, e, bit)) continue
       const v = net.edgeTo[e]
       if (done[v]) continue
       const next = cost[u] + edgeLength(net, e) / speed[e]
@@ -141,7 +138,7 @@ export class PathTree {
   /** Edge to follow next ('to' tree) or the edge used to arrive ('from' tree); -1 when unreachable. */
   readonly parent: Int32Array
 
-  constructor(net: Network, mode: Mode, root: number, direction: 'to' | 'from', closed: Closures) {
+  constructor(net: Network, mode: Mode, root: number, direction: 'to' | 'from') {
     this.net = net
     this.mode = mode
     this.root = root
@@ -164,7 +161,7 @@ export class PathTree {
       done[u] = 1
       for (let k = start[u]; k < start[u + 1]; k++) {
         const e = list[k]
-        if (!usable(net, e, bit, closed)) continue
+        if (!usable(net, e, bit)) continue
         const v = forward ? net.edgeTo[e] : net.edgeFrom[e]
         if (done[v]) continue
         const next = cost[u] + edgeLength(net, e) / speed[e]
@@ -196,7 +193,6 @@ export class PathTree {
 /** Least-recently-used cache of path trees, keyed by mode, direction and root. */
 export class TreeCache {
   private trees = new Map<string, PathTree>()
-  private closed: Closures = null
   private net: Network
   private capacity: number
   builtThisTick = 0
@@ -204,11 +200,6 @@ export class TreeCache {
   constructor(net: Network, capacity: number) {
     this.net = net
     this.capacity = capacity
-  }
-
-  setClosures(closed: Closures) {
-    this.closed = closed
-    this.trees.clear()
   }
 
   has(mode: Mode, root: number, direction: 'to' | 'from') {
@@ -224,7 +215,7 @@ export class TreeCache {
       this.trees.set(key, tree)
       return tree
     }
-    tree = new PathTree(this.net, mode, root, direction, this.closed)
+    tree = new PathTree(this.net, mode, root, direction)
     this.builtThisTick++
     this.trees.set(key, tree)
     if (this.trees.size > this.capacity) this.trees.delete(this.trees.keys().next().value!)
