@@ -1206,3 +1206,292 @@ kbd {
 .restore-button:hover {
   background: var(--tint-strong);
 }
+
+/* Followed vehicle, above the simulation bar */
+.follow-card {
+  position: absolute;
+  left: 50%;
+  bottom: 100px;
+  transform: translateX(-50%);
+  width: 420px;
+  max-width: calc(100% - 2 * var(--gutter));
+  padding: 8px 12px 10px;
+  z-index: 3;
+}
+
+.follow-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.follow-head .sim-badge.small {
+  margin-left: 0;
+}
+
+.follow-head .icon-button {
+  margin-left: auto;
+}
+
+.chip-toggle {
+  padding: 2px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chip-toggle.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.follow-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.follow-title strong {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.follow-title span {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.line-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.45);
+}
+
+.follow-stats {
+  display: grid;
+  grid-template-columns: 0.8fr 1.4fr 1fr;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.follow-stats dt {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.follow-stats dd {
+  margin: 1px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.follow-stats small {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.follow-status {
+  margin: 8px 0 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--badge-bg);
+  color: var(--badge);
+  font-size: 11.5px;
+}
+
+/* Before/after comparison in the dashboard */
+.comparison {
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--tint);
+}
+
+.comparison-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.comparison-head span {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 3px 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.comparison-table th[scope='row'],
+.comparison-table thead th:first-child {
+  text-align: left;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.comparison-table thead th {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.comparison-table td.better {
+  color: #30a46c;
+  font-weight: 600;
+}
+
+.comparison-table td.worse {
+  color: #e5484d;
+  font-weight: 600;
+}
+
+.comparison-table td.same {
+  color: var(--text-muted);
+}
+
+.toggle.compact {
+  margin-top: 6px;
+  padding: 4px 0;
+  font-size: 11.5px;
+}
+
+.change-key {
+  display: inline-block;
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .follow-card {
+    bottom: 196px;
+  }
+
+  .follow-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Route diagram of the followed bus's line */
+.right-column > .route-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 1;
+  min-height: 120px;
+  overflow: hidden;
+}
+
+.route-panel .panel-header .line-badge {
+  margin-right: 4px;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.route-body {
+  padding: 0 10px 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.route-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.route-ends span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.route-diagram {
+  display: block;
+  margin: 0 auto;
+}
+
+.route-line {
+  fill: none;
+  stroke-width: 5;
+  stroke-linejoin: round;
+}
+
+.route-stop {
+  fill: #ffffff;
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 1;
+}
+
+.route-name {
+  fill: var(--text);
+  font-size: 10.5px;
+}
+
+.route-waiting {
+  fill: var(--badge);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.route-bus {
+  cursor: pointer;
+}
+
+.route-bus rect {
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.route-bus.followed rect {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.follow-stats {
+  grid-template-columns: repeat(auto-fit, minmax(72px, auto));
+}
+
+.route-name {
+  font-size: 10px;
+}
+
+.follow-title .line-badge {
+  color: #fff;
+  overflow: visible;
+}

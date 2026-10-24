@@ -4,8 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_STRIDE, Kind, Mode, type NetworkFile, type TransitFile } from '../../types/simulation'
 import { nightFactor, sunElevation } from '../map/lighting'
 import { buildNetwork, edgeLength, toLngLat, type Network } from './network'
+import { buildScenarioNetwork } from '../scenarios/scenarioNetwork'
+import { BusFleet, matchLines } from './buses'
 import { findRoute, PathTree } from './routing'
-import { TrafficModel } from './traffic'
+import { Signals, SignalState } from './signals'
+import { ROAD_ID_LIMIT, TrafficModel } from './traffic'
 import { tinyNetwork } from './testNetwork'
 import { TransitModel } from './transit'
 
@@ -119,10 +122,18 @@ describe('street traffic', () => {
 describe('public transport', () => {
   const transit = new TransitModel(transitFile)
   const frame = new Float32Array(AGENT_STRIDE * 2000)
+  const scenario = buildScenarioNetwork(networkFile, [])
+  const runs = matchLines(transit, scenario.net)
+  const busesAt = (clock: number) => {
+    const traffic = new TrafficModel(scenario.net, { density: 0, startClock: clock, seed: 1 })
+    const fleet = new BusFleet(transit, runs, traffic)
+    fleet.reset(clock)
+    return fleet.stats().buses
+  }
 
   it('runs buses and trains by day and rests at night', () => {
     transit.writeFrame(8 * 3600, frame)
-    expect(transit.counts.buses).toBeGreaterThan(20)
+    expect(busesAt(8 * 3600)).toBeGreaterThan(20)
     expect(transit.counts.trains).toBeGreaterThan(3)
     transit.writeFrame(3.5 * 3600, frame)
     expect(transit.counts.trains).toBe(0)
@@ -136,13 +147,16 @@ describe('public transport', () => {
     // Night buses only run at weekends, so not on the weekday timetable.
     expect(infos.filter((l) => l.ref.startsWith('N')).every((l) => l.tripsPerDay === 0)).toBe(true)
     // Busy daytime, quiet early morning.
-    transit.writeFrame(12 * 3600, frame)
-    const midday = transit.counts.buses
-    transit.writeFrame(4.5 * 3600, frame)
-    expect(transit.counts.buses).toBeLessThan(midday / 3)
+    expect(busesAt(4.5 * 3600)).toBeLessThan(busesAt(12 * 3600) / 3)
   })
 
-  it('places vehicles on their routes, deterministically', () => {
+  it('names stops from the timetable feed', () => {
+    const named = transit.lines.flatMap((l) => l.stopNames).filter(Boolean)
+    expect(named.length).toBeGreaterThan(500)
+    expect(named.some((n) => n!.startsWith('Huizen, '))).toBe(true)
+  })
+
+  it('places trains on their routes, deterministically', () => {
     const n = transit.writeFrame(9 * 3600, frame)
     const again = new Float32Array(AGENT_STRIDE * 2000)
     expect(transit.writeFrame(9 * 3600, again)).toBe(n)
@@ -154,6 +168,140 @@ describe('public transport', () => {
       expect(lat).toBeGreaterThan(52.15)
       expect(lat).toBeLessThan(52.37)
     }
+    const train = frame[6]
+    expect(transit.inspectTrain(train, 9 * 3600)?.type).toBe('train')
+  })
+
+  it('drives buses through traffic, close to the timetable', () => {
+    const traffic = new TrafficModel(scenario.net, { density: 1500, startClock: 10 * 3600, seed: 8 })
+    traffic.signals = new Signals(scenario.net)
+    traffic.populate()
+    const fleet = new BusFleet(transit, runs, traffic)
+    fleet.reset(traffic.clock)
+    for (let i = 0; i < 1200; i++) {
+      traffic.step(0.5)
+      fleet.step(0.5, traffic.clock)
+    }
+    const stats = fleet.stats()
+    expect(stats.buses).toBeGreaterThan(20)
+    expect(stats.busDelayMinutes).toBeLessThan(2)
+    // Cars queue behind moving buses.
+    expect(traffic.externals.length).toBeGreaterThan(5)
+    const bus = fleet.buses[0]
+    expect(fleet.inspect(bus.id)).toMatchObject({ type: 'bus', line: bus.line.info.index })
+    // Simulated passengers ride the buses, and the route diagram shows the whole line.
+    expect(fleet.buses.reduce((n, b) => n + b.onBoard, 0)).toBeGreaterThan(50)
+    const info = fleet.inspect(bus.id)
+    if (info?.type !== 'bus' || !info.route) throw new Error('no route')
+    expect(info.route.forward.stops.length).toBeGreaterThan(3)
+    expect(info.route.forward.buses.some((b) => b.id === bus.id)).toBe(true)
+    const waiting = [...info.route.forward.stops, ...(info.route.back?.stops ?? [])].reduce((n, s) => n + s.waiting, 0)
+    expect(waiting).toBeGreaterThan(0)
+    const busiest = fleet.buses.map((b) => fleet.route(b.line.info.index)).filter((r) => r.back).length
+    expect(busiest).toBeGreaterThan(5)
+  })
+
+  it('diverts buses around a closed street and rejoins the route', () => {
+    const traffic = new TrafficModel(scenario.net, { density: 300, startClock: 11 * 3600, seed: 2 })
+    traffic.signals = new Signals(scenario.net)
+    const fleet = new BusFleet(transit, runs, traffic)
+    fleet.reset(traffic.clock)
+    // A bus with a matched street well ahead of it.
+    let target: { id: number; segment: number; d: number } | null = null
+    for (const bus of fleet.buses) {
+      const run = runs[bus.line.info.index].find((r) => r.d0 > bus.d + 600 && r.d1 < bus.end - 1500 && r.d1 - r.d0 > 40)
+      if (run) {
+        target = { id: bus.id, segment: scenario.net.edgeSeg[run.edge], d: run.d1 }
+        break
+      }
+    }
+    expect(target).not.toBeNull()
+    const closed = buildScenarioNetwork(networkFile, [{ kind: 'access', segment: target!.segment, access: 'closed' }])
+    traffic.setNetwork(closed.net)
+    fleet.networkChanged()
+    let diverted = false
+    for (let i = 0; i < 2400; i++) {
+      traffic.step(0.5)
+      fleet.step(0.5, traffic.clock)
+      const bus = fleet.buses.find((b) => b.id === target!.id)
+      if (!bus || bus.d > target!.d + 50) break
+      if (bus.detour) diverted = true
+    }
+    expect(diverted).toBe(true)
+    const after = fleet.buses.find((b) => b.id === target!.id)
+    if (after) expect(after.d).toBeGreaterThan(target!.d)
+  })
+})
+
+describe('traffic lights', () => {
+  const net = buildNetwork(networkFile)
+  const signals = new Signals(net)
+
+  it('control the mapped signalised junctions in two phases', () => {
+    expect(net.signals.length).toBeGreaterThan(50)
+    expect(signals.approaches.length).toBeGreaterThan(100)
+    const byController = new Map<number, number[]>()
+    signals.approaches.forEach((a, i) => byController.set(a.controller, [...(byController.get(a.controller) ?? []), i]))
+    for (const approaches of byController.values()) {
+      const seen = new Set<number>()
+      for (let t = 0; t < 120; t++) {
+        const greenPhases = new Set(approaches.filter((i) => signals.state(i, t) === SignalState.Green).map((i) => signals.approaches[i].phase))
+        // Crossing directions are never green together.
+        expect(greenPhases.size).toBeLessThanOrEqual(1)
+        for (const i of approaches) seen.add(signals.state(i, t))
+      }
+      expect(seen).toEqual(new Set([SignalState.Green, SignalState.Amber, SignalState.Red]))
+    }
+  })
+
+  it('make cars wait at red', () => {
+    const sim = new TrafficModel(net, { density: 2500, startClock: 8 * 3600, seed: 6 })
+    sim.signals = signals
+    sim.populate()
+    for (let i = 0; i < 240; i++) sim.step(0.5)
+    const waiting = sim.agents.filter((a) => {
+      if (a.mode !== Mode.Car || a.speed > 0.5 || a.idx + 1 >= a.edges.length) return false
+      const edge = a.edges[a.idx]
+      return signals.stateForEdge(edge, sim.clock) === SignalState.Red && edgeLength(net, edge) - a.offset < 60
+    })
+    expect(waiting.length).toBeGreaterThan(5)
+  })
+})
+
+describe('comparing with the original network', () => {
+  const scenario = buildScenarioNetwork(networkFile, [])
+
+  it('forks the traffic and measures both runs', () => {
+    const sim = new TrafficModel(scenario.net, { density: 1500, startClock: 8 * 3600, seed: 12 })
+    sim.populate()
+    const copy = sim.fork(scenario.net, 13)
+    expect(copy.agents.length).toBe(sim.agents.filter((a) => a.mode !== Mode.Foot).length)
+    expect(copy.agents[0]).not.toBe(sim.agents[0])
+    sim.resetMeasures()
+    copy.resetMeasures()
+    for (let i = 0; i < 600; i++) {
+      sim.step(0.5)
+      copy.step(0.5)
+    }
+    for (const m of [sim.measures, copy.measures]) {
+      expect(m.seconds).toBeCloseTo(300)
+      expect(m.carKm).toBeGreaterThan(100)
+      expect(m.journeys).toBeGreaterThan(10)
+      expect(m.flow.some((v) => v > 20)).toBe(true)
+    }
+    // Same network and demand: similar results.
+    expect(copy.measures.carKm / sim.measures.carKm).toBeGreaterThan(0.8)
+    expect(copy.measures.carKm / sim.measures.carKm).toBeLessThan(1.25)
+  })
+
+  it('describes a followed car', () => {
+    const sim = new TrafficModel(scenario.net, { density: 500, startClock: 9 * 3600, seed: 4 })
+    sim.populate()
+    const car = sim.agents.find((a) => a.mode === Mode.Car)!
+    const info = sim.inspect(car.id % ROAD_ID_LIMIT)
+    expect(info).toMatchObject({ type: 'road', vehicle: car.kind })
+    if (info?.type === 'road') expect(info.remainingKm).toBeGreaterThan(0)
+    expect(sim.inspect(ROAD_ID_LIMIT - 1)).toBeNull()
   })
 })
 

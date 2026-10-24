@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { amsterdamClockNow } from '../features/map/lighting'
 import type { SimulationClient } from '../features/simulation/client'
-import type { SimulationStats, TransitLineInfo } from '../types/simulation'
+import type { Comparison, FollowInfo, SimulationStats, TransitLineInfo } from '../types/simulation'
 
 export interface HistoryPoint {
   clock: number
@@ -31,6 +31,17 @@ interface SimulationState {
   timetableDate: string | null
   /** Time chosen on the slider while the simulation catches up, so the UI responds at once. */
   draftClock: number | null
+  /** The vehicle the camera follows, and its latest details. */
+  followId: number | null
+  followInfo: FollowInfo | null
+  /** Set when the followed vehicle reached its destination or left the area. */
+  followGone: boolean
+  /** Turn the map with the followed vehicle. */
+  chase: boolean
+  /** The edited network against the original, while road changes are active. */
+  comparison: Comparison | null
+  /** Colour streets by how much busier or quieter they became. */
+  showChanges: boolean
 }
 
 export const SPEED_OPTIONS = [1, 5, 20, 60]
@@ -48,6 +59,12 @@ export const useSimulationStore = create<SimulationState>(() => ({
   lines: [],
   timetableDate: null,
   draftClock: null,
+  followId: null,
+  followInfo: null,
+  followGone: false,
+  chase: false,
+  comparison: null,
+  showChanges: true,
 }))
 
 /** The time of day to show: a just-chosen time first, then the simulation's own clock. */

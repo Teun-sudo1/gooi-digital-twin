@@ -19,7 +19,7 @@ export const InstanceFlag = { Braking: 1 } as const
 /** Agents are drawn as 3D models from this zoom; below it the flat icons take over. */
 export const MODEL_MIN_ZOOM = 13.5
 
-const KINDS = [Kind.Hatchback, Kind.Sedan, Kind.Suv, Kind.Van, Kind.Truck, Kind.Bike, Kind.Pedestrian, Kind.Bus, Kind.TrainCar]
+const KINDS = [Kind.Hatchback, Kind.Sedan, Kind.Suv, Kind.Van, Kind.Truck, Kind.Bike, Kind.Pedestrian, Kind.Bus, Kind.TrainCar, Kind.TrafficLight]
 const HEADLIGHT_KINDS = new Set<number>([Kind.Hatchback, Kind.Sedan, Kind.Suv, Kind.Van, Kind.Truck, Kind.Bus])
 /** Front of each vehicle (metres ahead of its centre), where headlight beams start. */
 const FRONT: Partial<Record<number, number>> = {
@@ -79,6 +79,14 @@ void main() {
   if (m == 8) {
     // Headlight beam on the road, fading with distance (drawn additively).
     fragColor = vec4(1.0, 0.93, 0.72, (1.0 - v_beam) * 0.2 * u_night);
+    return;
+  }
+  if (m >= 9) {
+    // Traffic light lamps: flags carry the state (0 green, 1 amber, 2 red).
+    int state = int(v_flags + 0.5);
+    vec3 on = m == 9 ? vec3(1.0, 0.16, 0.1) : m == 10 ? vec3(1.0, 0.68, 0.1) : vec3(0.2, 1.0, 0.45);
+    bool lit = (m == 9 && state == 2) || (m == 10 && state == 1) || (m == 11 && state == 0);
+    fragColor = vec4(lit ? on * 1.3 : on * 0.12, 1.0);
     return;
   }
   vec3 base =

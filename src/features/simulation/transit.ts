@@ -1,4 +1,4 @@
-import { AGENT_STRIDE, Kind, type Projection, type TransitFile, type TransitLineInfo, type TransitLineRecord } from '../../types/simulation'
+import { AGENT_STRIDE, Kind, type FollowInfo, type Projection, type TransitFile, type TransitLineInfo, type TransitLineRecord } from '../../types/simulation'
 import { toLngLat } from './network'
 
 /*
@@ -10,13 +10,17 @@ import { toLngLat } from './network'
  * lines). Without timetable data, departures fall back to the OSM `interval`
  * tag or an assumed frequency, with a simple run profile.
  *
- * Either way a vehicle's position is a pure function of the clock, so jumping
- * in time is instant and consistent. There is no live data, and transit
- * vehicles do not interact with simulated road traffic.
+ * Trains (and buses without a timetable) are positioned as a pure function of
+ * the clock, so jumping in time is instant and consistent. Buses with a
+ * timetable are driven through road traffic by the bus fleet (buses.ts),
+ * which uses the trips, stops and geometry kept here. There is no live data.
  */
 
 const DAY = 86_400
 const EVENING = 20 * 3600
+/** Frame ids: buses and trains are numbered above road traffic (see ROAD_ID_LIMIT). */
+export const BUS_ID_BASE = 8_000_000
+export const TRAIN_ID_BASE = 12_000_000
 
 /** One stretch between stops (or the edges of the modelled area). */
 interface Leg {
@@ -34,13 +38,16 @@ interface Leg {
 }
 
 /** A scheduled trip: times (s since midnight, may pass 24:00) at distances along the line. */
-interface Trip {
+export interface Trip {
   times: Float64Array
   dist: Float64Array
 }
 
-interface Line {
+export interface Line {
   info: TransitLineInfo
+  /** Stops as metres along the line, with their names. */
+  stopDist: number[]
+  stopNames: (string | null)[]
   /** Real trips when a timetable is loaded (empty = no service); null = use headways. */
   trips: Trip[] | null
   xs: Float64Array
@@ -200,11 +207,15 @@ function buildLine(record: TransitLineRecord, index: number, variants: number, p
       ref: record.ref,
       name: record.name,
       colour: record.colour ?? (train ? '#ffc917' : '#2f9e6e'),
+      from: record.from,
+      to: record.to,
       schedule: timetable ? 'timetable' : fromOsm ? 'osm-interval' : 'assumed',
       tripsPerDay: timetable ? (record.trips?.length ?? 0) : Math.floor((serviceEnd - serviceStart) / (headwayMinutes * 60)),
       coordinates,
       stops,
     },
+    stopDist: record.stops,
+    stopNames: record.stopNames ?? record.stops.map(() => null),
     trips: timetable ? (record.trips ?? []).map(normaliseTrip) : null,
     xs,
     ys,
@@ -242,7 +253,7 @@ export class TransitModel {
   readonly timetableDate: string | null
 
   /** Distance along the line at time t on a scheduled trip, or -1 when not running. */
-  private tripDistance(line: Line, trip: Trip, t: number) {
+  scheduledDistance(line: Line, trip: Trip, t: number) {
     const { times, dist } = trip
     const n = times.length
     if (t < times[0] || t > times[n - 1]) return -1
@@ -281,7 +292,8 @@ export class TransitModel {
     return leg.start + legDistance(leg, elapsed - leg.t0)
   }
 
-  private pointAt(line: Line, d: number, out: { x: number; y: number; bearing: number }) {
+  /** Position, bearing and direction of the line at distance `d`. */
+  pointAt(line: Line, d: number, out: { x: number; y: number; bearing: number }) {
     const { xs, ys, cum } = line
     let lo = 0
     let hi = cum.length - 1
@@ -299,7 +311,10 @@ export class TransitModel {
     return { dx, dy }
   }
 
-  /** Writes all buses and train carriages in service at `clock`; returns the count. */
+  /**
+   * Writes train carriages (and buses without a timetable) in service at
+   * `clock`; returns the count. Buses with a timetable are written by the fleet.
+   */
   writeFrame(clock: number, out: Float32Array): number {
     let n = 0
     const max = Math.floor(out.length / AGENT_STRIDE)
@@ -307,7 +322,7 @@ export class TransitModel {
     this.buses = 0
     this.trains = 0
 
-    const emit = (line: Line, head: number) => {
+    const emit = (line: Line, head: number, id: number) => {
       if (line.info.mode === 'train') this.trains++
       else this.buses++
       for (let c = 0; c < line.carriages && n < max; c++) {
@@ -329,6 +344,7 @@ export class TransitModel {
         out[o + 3] = line.info.mode === 'train' ? Kind.TrainCar : Kind.Bus
         out[o + 4] = line.info.index
         out[o + 5] = line.variant
+        out[o + 6] = id
         n++
       }
     }
@@ -337,11 +353,12 @@ export class TransitModel {
       // Consider today and trips that started yesterday evening (times past 24:00).
       for (const now of [clock, clock + DAY]) {
         if (line.trips) {
-          for (const trip of line.trips) {
-            const d = this.tripDistance(line, trip, now)
+          if (line.info.mode === 'bus') continue
+          line.trips.forEach((trip, t) => {
+            const d = this.scheduledDistance(line, trip, now)
             // Scheduled positions mark the middle of the vehicle, so trains stop centred on the platform.
-            if (d >= 0) emit(line, d + (line.carriages * line.carriageLength) / 2)
-          }
+            if (d >= 0) emit(line, d + (line.carriages * line.carriageLength) / 2, TRAIN_ID_BASE + line.info.index * 1000 + t)
+          })
           continue
         }
         const { headway, duration, serviceStart, serviceEnd, offset } = line
@@ -352,7 +369,8 @@ export class TransitModel {
           if (departure > serviceEnd) break
           // Buses run half as often in the evening.
           if (line.info.mode === 'bus' && departure > EVENING && k % 2 === 1) continue
-          emit(line, this.distanceAt(line, now - departure))
+          const base = line.info.mode === 'train' ? TRAIN_ID_BASE : BUS_ID_BASE
+          emit(line, this.distanceAt(line, now - departure), base + line.info.index * 1000 + (k % 1000))
         }
       }
     }
@@ -361,5 +379,51 @@ export class TransitModel {
 
   get counts() {
     return { buses: this.buses, trains: this.trains }
+  }
+
+  /** The next stop after distance `d`, with its scheduled time on a trip (when there is one). */
+  nextStop(line: Line, d: number, trip: Trip | null): { index: number; name: string | null; time: number | null } | null {
+    const index = line.stopDist.findIndex((s) => s > d + 5)
+    if (index < 0) return null
+    const at = line.stopDist[index]
+    let time: number | null = null
+    if (trip) {
+      let best = 150
+      for (let k = 0; k < trip.dist.length; k++) {
+        const off = Math.abs(trip.dist[k] - at)
+        if (off < best) {
+          best = off
+          time = trip.times[k]
+        }
+      }
+    }
+    return { index, name: line.stopNames[index], time: time === null ? null : time % DAY }
+  }
+
+  /** Details of a train for the follow card, or null when it isn't running. */
+  inspectTrain(id: number, clock: number): FollowInfo | null {
+    const index = Math.floor((id - TRAIN_ID_BASE) / 1000)
+    const line = this.lines[index]
+    const trip = line?.trips?.[(id - TRAIN_ID_BASE) % 1000]
+    if (!line || !trip) return null
+    for (const now of [clock, clock + DAY]) {
+      const d = this.scheduledDistance(line, trip, now)
+      if (d < 0) continue
+      const ahead = this.scheduledDistance(line, trip, now + 1)
+      const next = this.nextStop(line, d, trip)
+      return {
+        type: 'train',
+        id,
+        line: index,
+        speedKmh: ahead >= 0 ? Math.abs(ahead - d) * 3.6 : 0,
+        delayMinutes: 0,
+        nextStop: next?.name ?? null,
+        nextStopTime: next?.time ?? null,
+        detour: false,
+        onBoard: null,
+        route: null,
+      }
+    }
+    return null
   }
 }

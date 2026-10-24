@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { BUSIER, QUIETER } from '../features/scenarios/useComparisonLayer'
 import { CAR_COLOURS, CLOTHING_COLOURS } from '../features/simulation/icons'
 import { CO2_KG_PER_KM } from '../features/simulation/traffic'
 import { type HistoryPoint, useSimulationStore } from '../store/useSimulationStore'
+import type { Comparison, ComparisonSide } from '../types/simulation'
 import { formatCount, formatDecimal } from '../utils/format'
 import { TrendChart } from './TrendChart'
 
@@ -29,12 +31,86 @@ function Stat({ label, value, unit, title }: { label: string; value: string; uni
   )
 }
 
+/** Comparison rows: value, format, and whether a higher value is better. */
+const COMPARED: { label: string; value: (s: ComparisonSide) => number | null; format: (v: number) => string; higherIsBetter: boolean }[] = [
+  { label: 'Car journey', value: (s) => s.journeyMinutes, format: (v) => `${formatDecimal(v)} min`, higherIsBetter: false },
+  { label: 'Car speed', value: (s) => s.carSpeedKmh, format: (v) => `${formatDecimal(v)} km/h`, higherIsBetter: true },
+  { label: 'Time delayed', value: (s) => s.delayedShare * 100, format: (v) => `${formatDecimal(v)}%`, higherIsBetter: false },
+  { label: 'Car km per hour', value: (s) => s.carKmPerHour, format: (v) => formatCount(Math.round(v)), higherIsBetter: false },
+  { label: 'CO₂ per hour', value: (s) => s.co2KgPerHour, format: (v) => `${formatCount(Math.round(v))} kg`, higherIsBetter: false },
+  { label: 'Bus delay', value: (s) => s.busDelayMinutes, format: (v) => `${formatDecimal(v)} min`, higherIsBetter: false },
+]
+/** Simulated minutes before the comparison means much. */
+const SETTLING_MINUTES = 5
+
+function ComparisonTable({ comparison }: { comparison: Comparison }) {
+  const showChanges = useSimulationStore((s) => s.showChanges)
+  const settling = comparison.minutes < SETTLING_MINUTES
+  return (
+    <section className="comparison" aria-label="Road changes compared with the original network">
+      <div className="comparison-head">
+        <strong>Your road changes vs the original</strong>
+        <span>{Math.floor(comparison.minutes)} simulated min</span>
+      </div>
+      {settling ? (
+        <p className="sim-note">
+          Both versions now run side by side. Results appear after a few simulated minutes; speed up to 20× to get
+          there faster.
+        </p>
+      ) : (
+        <table className="comparison-table">
+          <thead>
+            <tr>
+              <th scope="col">Simulated</th>
+              <th scope="col">Original</th>
+              <th scope="col">Changed</th>
+              <th scope="col">Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {COMPARED.map((row) => {
+              const before = row.value(comparison.original)
+              const after = row.value(comparison.scenario)
+              const change = before !== null && after !== null && before > 0.05 ? (after - before) / before : null
+              const meaningful = change !== null && Math.abs(change) >= 0.03
+              const better = meaningful && change! > 0 === row.higherIsBetter
+              return (
+                <tr key={row.label}>
+                  <th scope="row">{row.label}</th>
+                  <td>{before === null ? '–' : row.format(before)}</td>
+                  <td>{after === null ? '–' : row.format(after)}</td>
+                  <td className={meaningful ? (better ? 'better' : 'worse') : 'same'}>
+                    {change === null ? '–' : meaningful ? `${change > 0 ? '▲' : '▼'} ${Math.abs(Math.round(change * 100))}%` : '≈ same'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+      <label className="toggle compact">
+        <input type="checkbox" checked={showChanges} onChange={() => useSimulationStore.setState({ showChanges: !showChanges })} />
+        <span className="switch" aria-hidden="true" />
+        <span>
+          Show streets with <span className="change-key" style={{ background: BUSIER }} /> more or{' '}
+          <span className="change-key" style={{ background: QUIETER }} /> less car traffic
+        </span>
+      </label>
+      <p className="dashboard-footnote">
+        From your last change, a copy of the simulation keeps running on the original network with the same demand.
+        Differences of a few percent can be chance.
+      </p>
+    </section>
+  )
+}
+
 export function SimulationDashboard() {
   const status = useSimulationStore((s) => s.status)
   const stats = useSimulationStore((s) => s.stats)
   const history = useSimulationStore((s) => s.history)
   const lines = useSimulationStore((s) => s.lines)
   const timetableDate = useSimulationStore((s) => s.timetableDate)
+  const comparison = useSimulationStore((s) => s.comparison)
   const [open, setOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 640)
   const [metric, setMetric] = useState<Metric>('cars')
 
@@ -69,6 +145,7 @@ export function SimulationDashboard() {
             <p className="sim-note">Loading the Gooi street and transit networks…</p>
           ) : (
             <>
+              {comparison && <ComparisonTable comparison={comparison} />}
               <dl className="stats">
                 <Stat label="Cars" value={formatCount(stats.cars)} />
                 <Stat label="Cyclists" value={formatCount(stats.bikes)} />
@@ -91,6 +168,14 @@ export function SimulationDashboard() {
                   value={co2 < 1000 ? formatCount(Math.round(co2)) : formatDecimal(co2 / 1000)}
                   unit={co2 < 1000 ? 'kg' : 't'}
                 />
+                <Stat
+                  label="Bus delay"
+                  value={stats.busDelayMinutes === null ? '–' : formatDecimal(stats.busDelayMinutes)}
+                  unit={stats.busDelayMinutes === null ? undefined : 'min'}
+                  title="Average delay of buses in service against the timetable"
+                />
+                <Stat label="Buses late" value={formatCount(stats.busesLate)} title="Three minutes late or more" />
+                <Stat label="Diversions" value={formatCount(stats.busDetours)} title="Buses diverted around closed roads" />
               </dl>
               <p className="sim-note small">
                 {stats.pedestrians > 0
@@ -151,8 +236,9 @@ export function SimulationDashboard() {
             Synthetic output of a simplified model, not measured traffic. Streets, paths, one-way rules,
             speed limits and bus and train routes and stops come from OpenStreetMap.{' '}
             {timetableDay
-              ? `Buses and trains run to the real timetable of ${timetableDay} (${formatCount(scheduledTrips)} trips, OVapi/NDOV open data), with simulated positions between stops. `
+              ? `Buses and trains run to the real timetable of ${timetableDay} (${formatCount(scheduledTrips)} trips, OVapi/NDOV open data). Buses drive through the simulated traffic, so their delays are simulated too. `
               : 'Bus and train frequencies are assumed. '}
+            Traffic lights stand at the signalised junctions mapped in OpenStreetMap; their timings are assumed. 
             Car, bike and pedestrian demand and driving behaviour are assumed. CO₂ assumes {CO2_KG_PER_KM * 1000} g/km
             per car. Building heights are approximate.
           </p>

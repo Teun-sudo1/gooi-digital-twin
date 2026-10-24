@@ -153,8 +153,8 @@ export function ScenarioPanel() {
             </>
           )}
           <p className="dashboard-footnote">
-            Changes affect simulated cars, cyclists and pedestrians. Buses and trains keep to their timetables and
-            don't react to road changes yet.
+            Changes affect simulated cars, cyclists, pedestrians and buses: buses divert around closed roads and
+            can be delayed by extra traffic. Trains keep to their timetable.
           </p>
         </div>
       )}

@@ -17,15 +17,16 @@ import { buildNetwork, fromLngLat, MODE_BIT, toLngLat, type Network } from '../s
  * stable: agents already on the road keep valid routes.
  */
 
-const ALL_MODES = MODE_BIT[Mode.Car] | MODE_BIT[Mode.Bike] | MODE_BIT[Mode.Foot]
+const MODES = [Mode.Car, Mode.Bike, Mode.Foot, Mode.Bus] as const
+const ALL_MODES = MODE_BIT[Mode.Car] | MODE_BIT[Mode.Bike] | MODE_BIT[Mode.Foot] | MODE_BIT[Mode.Bus]
 
 /** Modes still allowed on a street after an access edit (intersected with what was allowed before). */
 export const ACCESS_MODES: Record<RoadAccess, number> = {
   closed: 0,
   'no-cars': MODE_BIT[Mode.Bike] | MODE_BIT[Mode.Foot],
   'foot-only': MODE_BIT[Mode.Foot],
-  // Buses follow their timetable on their own; the pavement stays open.
-  'bus-only': MODE_BIT[Mode.Foot],
+  // Buses keep the street; the pavement stays open.
+  'bus-only': MODE_BIT[Mode.Bus] | MODE_BIT[Mode.Foot],
 }
 
 export const SPEED_LIMIT_RANGE = [5, 130] as const
@@ -131,12 +132,14 @@ export function buildScenarioNetwork(file: NetworkFile, interventions: Intervent
       const s = net.edgeSeg[e]
       const allowed = access.get(s) ?? ALL_MODES
       net.edgeModes[e] &= allowed
-      for (const m of [Mode.Car, Mode.Bike, Mode.Foot]) if (!(net.edgeModes[e] & MODE_BIT[m])) net.edgeSpeed[m][e] = 0
+      for (const m of MODES) if (!(net.edgeModes[e] & MODE_BIT[m])) net.edgeSpeed[m][e] = 0
       const limit = speed.get(s)
-      if (limit !== undefined && net.edgeModes[e] & MODE_BIT[Mode.Car]) net.edgeSpeed[Mode.Car][e] = limit
+      if (limit !== undefined) {
+        for (const m of [Mode.Car, Mode.Bus]) if (net.edgeModes[e] & MODE_BIT[m]) net.edgeSpeed[m][e] = limit
+      }
     }
     // Keep the A* heuristic admissible when a limit was raised.
-    for (const m of [Mode.Car, Mode.Bike, Mode.Foot]) {
+    for (const m of MODES) {
       let max = 1
       for (let e = 0; e < net.edgeCount; e++) max = Math.max(max, net.edgeSpeed[m][e])
       net.maxSpeed[m] = max

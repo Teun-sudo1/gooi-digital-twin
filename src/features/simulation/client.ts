@@ -7,6 +7,7 @@ import {
   Kind,
   type FromWorker,
   type Intervention,
+  type SignalHead,
   type JunctionInfo,
   type Projection,
   type SegmentInfo,
@@ -22,6 +23,9 @@ const TRANSIT = 'sim-transit'
 const ROUTES = 'transit-routes'
 const STOPS = 'transit-stops'
 const BUS_LABELS = 'sim-bus-labels'
+const FOLLOW_RING = 'sim-follow-ring'
+/** Traffic lights are drawn within this distance (m) of the view centre. */
+const SIGNAL_REACH = 2500
 const FONT = ['Noto Sans Regular']
 /** Simulated seconds between trend-chart samples. */
 const HISTORY_INTERVAL = 300
@@ -95,6 +99,15 @@ export class SimulationClient {
   private models: AgentLayer | null = null
   private instances = new Float32Array(0)
   private scenario: Intervention[] = []
+  private signalHeads: SignalHead[] = []
+  private signalStates: Uint8Array = new Uint8Array(0)
+  /** Latest frame, kept for picking vehicles and following one. */
+  private lastAgents: Float32Array = new Float32Array(0)
+  private lastAgentCount = 0
+  private lastTransit: Float32Array = new Float32Array(0)
+  private lastTransitCount = 0
+  private follow: number | null = null
+  private chase = false
   private picks = new Map<number, (result: PickResult) => void>()
   private nextPick = 1
 
@@ -158,6 +171,39 @@ export class SimulationClient {
     return new Promise((resolve) => this.picks.set(id, resolve))
   }
 
+  /** Nearest vehicle to a point within `radius` metres (from the latest frame), or null. */
+  pickVehicle(lngLat: [number, number], radius: number): number | null {
+    if (!this.projection) return null
+    const [x, y] = fromLngLat(this.projection, lngLat[0], lngLat[1])
+    let best: number | null = null
+    let bestD = radius
+    for (const [data, count] of [[this.lastAgents, this.lastAgentCount], [this.lastTransit, this.lastTransitCount]] as const) {
+      for (let i = 0; i < count; i++) {
+        const o = i * AGENT_STRIDE
+        const d = Math.hypot(data[o] - x, data[o + 1] - y)
+        if (d < bestD) {
+          bestD = d
+          best = data[o + 6]
+        }
+      }
+    }
+    return best
+  }
+
+  /** Follow a vehicle with the camera (null stops). */
+  setFollow(id: number | null) {
+    this.follow = id
+    this.post({ type: 'follow', id })
+    useSimulationStore.setState({ followId: id, followInfo: null })
+    if (id === null) this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({ type: 'FeatureCollection', features: [] })
+  }
+
+  /** Turn the map with the followed vehicle. */
+  setChase(chase: boolean) {
+    this.chase = chase
+    useSimulationStore.setState({ chase })
+  }
+
   /** 0 = day, 1 = night: fades vehicle headlights in and out. */
   setNight(night: number) {
     this.night = night
@@ -176,10 +222,10 @@ export class SimulationClient {
     this.map.off('moveend', this.sendViewport)
     window.clearTimeout(this.viewportTimer)
     if (!this.map.getStyle()) return
-    for (const layer of [BUS_LABELS, 'sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
+    for (const layer of [FOLLOW_RING, BUS_LABELS, 'sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
       if (this.map.getLayer(layer)) this.map.removeLayer(layer)
     }
-    for (const source of [AGENTS, TRANSIT, ROUTES, STOPS, BUS_LABELS]) {
+    for (const source of [AGENTS, TRANSIT, ROUTES, STOPS, BUS_LABELS, FOLLOW_RING]) {
       if (this.map.getSource(source)) this.map.removeSource(source)
     }
   }
@@ -217,6 +263,7 @@ export class SimulationClient {
       case 'ready':
         this.projection = message.projection
         this.lines = message.lines
+        this.signalHeads = message.signals
         registerIcons(this.map, message.lines)
         this.addLayers()
         this.setNight(this.night)
@@ -236,8 +283,25 @@ export class SimulationClient {
         this.picks.delete(message.id)
         break
       case 'frame':
+        this.signalStates = message.signals
+        this.lastAgents = message.agents
+        this.lastAgentCount = message.agentCount
+        this.lastTransit = message.transit
+        this.lastTransitCount = message.transitCount
         this.render(message.agents, message.agentCount, message.transit, message.transitCount)
+        this.updateFollow()
         this.post({ type: 'ack' })
+        break
+      case 'follow':
+        if (message.id !== this.follow) break
+        if (!message.info) {
+          // Arrived, or left the modelled area.
+          useSimulationStore.setState({ followInfo: null, followGone: true })
+          this.setFollow(null)
+        } else useSimulationStore.setState({ followInfo: message.info, followGone: false })
+        break
+      case 'comparison':
+        useSimulationStore.setState({ comparison: message.comparison })
         break
       case 'stats': {
         const { stats } = message
@@ -308,6 +372,36 @@ export class SimulationClient {
     this.map.getSource<GeoJSONSource>(TRANSIT)?.setData({ type: 'FeatureCollection', features: fill(this.transitPool, transit, transitCount, true) })
   }
 
+  /** Keeps the camera on the followed vehicle, easing towards it every frame. */
+  private updateFollow() {
+    if (this.follow === null || !this.projection) return
+    for (const [data, count] of [[this.lastAgents, this.lastAgentCount], [this.lastTransit, this.lastTransitCount]] as const) {
+      for (let i = 0; i < count; i++) {
+        const o = i * AGENT_STRIDE
+        if (data[o + 6] !== this.follow) continue
+        const [lng, lat] = toLngLat(this.projection, data[o], data[o + 1])
+        this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({
+          type: 'FeatureCollection',
+          features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: {} }],
+        })
+        // Don't fight a zoom or rotate gesture in progress.
+        if (this.map.isZooming() || this.map.isRotating()) return
+        const center = this.map.getCenter()
+        const k = 0.35
+        const camera: { center: [number, number]; bearing?: number } = {
+          center: [center.lng + (lng - center.lng) * k, center.lat + (lat - center.lat) * k],
+        }
+        if (this.chase) {
+          const bearing = this.map.getBearing()
+          const turn = ((((data[o + 2] - bearing) % 360) + 540) % 360) - 180
+          camera.bearing = bearing + turn * 0.12
+        }
+        this.map.jumpTo(camera)
+        return
+      }
+    }
+  }
+
   /** Line number badges above the 3D buses. */
   private renderBusLabels(transit: Float32Array, transitCount: number) {
     const projection = this.projection!
@@ -337,12 +431,17 @@ export class SimulationClient {
     if (!layer) return
     const { traffic, transit: showTransit } = useAppStore.getState().layerVisibility
     const projection = this.projection!
-    const kinds = 9
+    const kinds = 10
     const counts = new Array<number>(kinds).fill(0)
     const sources: [Float32Array, number][] = []
     if (traffic) sources.push([agents, agentCount])
     if (showTransit) sources.push([transit, transitCount])
     for (const [data, count] of sources) for (let i = 0; i < count; i++) counts[data[i * AGENT_STRIDE + 3]]++
+    // Traffic lights near the view centre.
+    const centre = this.map.getCenter()
+    const [cx, cy] = fromLngLat(projection, centre.lng, centre.lat)
+    const lights = this.signalHeads.map((_, i) => i).filter((i) => Math.hypot(this.signalHeads[i].x - cx, this.signalHeads[i].y - cy) < SIGNAL_REACH)
+    counts[Kind.TrafficLight] = lights.length
     const starts = new Array<number>(kinds).fill(0)
     for (let k = 1; k < kinds; k++) starts[k] = starts[k - 1] + counts[k - 1]
     const total = starts[kinds - 1] + counts[kinds - 1]
@@ -384,8 +483,19 @@ export class SimulationClient {
         out[w + 6] = secondary[0]
         out[w + 7] = secondary[1]
         out[w + 8] = secondary[2]
-        out[w + 9] = kind <= Kind.Truck && flags & 1 ? InstanceFlag.Braking : 0
+        out[w + 9] = (kind <= Kind.Truck || kind === Kind.Bus) && flags & 1 ? InstanceFlag.Braking : 0
       }
+    }
+    for (const i of lights) {
+      const head = this.signalHeads[i]
+      const [lng, lat] = toLngLat(projection, head.x, head.y)
+      const [dx, dy] = layer.offset(lng, lat)
+      const w = fill[Kind.TrafficLight]++ * INSTANCE_FLOATS
+      out.fill(0, w, w + INSTANCE_FLOATS)
+      out[w] = dx
+      out[w + 1] = dy
+      out[w + 2] = (head.bearing * Math.PI) / 180
+      out[w + 9] = this.signalStates[i] ?? 0
     }
     layer.setInstances(out.subarray(0, total * INSTANCE_FLOATS), starts, counts)
   }
@@ -521,6 +631,24 @@ export class SimulationClient {
     this.models = new AgentLayer(this.projection!.lng0, this.projection!.lat0)
     this.models.setNight(this.night)
     map.addLayer(this.models, map.getLayer('label-water') ? 'label-water' : undefined)
+
+    // A ring on the ground around the followed vehicle.
+    map.addSource(FOLLOW_RING, { type: 'geojson', data: empty })
+    map.addLayer(
+      {
+        id: FOLLOW_RING,
+        type: 'circle',
+        source: FOLLOW_RING,
+        paint: {
+          'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 12, 7, 16, 14, 18, 40, 20, 150],
+          'circle-color': 'rgba(0, 0, 0, 0)',
+          'circle-stroke-color': '#7cc4ff',
+          'circle-stroke-width': 2.5,
+          'circle-pitch-alignment': 'map',
+        },
+      },
+      before,
+    )
 
     // Line numbers float above the 3D buses, on top of everything.
     map.addSource(BUS_LABELS, { type: 'geojson', data: empty })

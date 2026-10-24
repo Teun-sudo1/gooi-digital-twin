@@ -40,6 +40,8 @@ Everything runs in the browser as a static site. There is no backend.
 
 - **Every agent is a 3D model** from street level up to zoom 13.5: cars (with glazed cabins, wheels, head- and brake lights), vans, trucks, buses in their line colours, NS train carriages, cyclists and pedestrians. They're drawn in a custom WebGL layer that shares depth with the 3D buildings. Agents are drawn larger than life (1.5× at street level, more when zoomed out), and further out they switch to flat icons.
 - **Cars** of five types (hatchback, sedan, SUV, van, truck), each with its own size, colours, acceleration and top speed. Brake lights show when a car slows or stops.
+- **Traffic lights** at the 87 signalised junctions mapped in OpenStreetMap, drawn in 3D. Each runs a two-phase cycle (main road, then side roads; timings assumed). Cars, buses and cyclists stop for red, and approaches with lights skip the normal right-of-way rules.
+- **Follow any vehicle:** click a car, bike, pedestrian, bus or train and the camera follows it. A card shows its speed, street, destination, distance left and trip time, and whether it's waiting at a red light. For buses and trains it shows the next stop with its scheduled time, the delay, and the (simulated) passengers on board. *Chase view* turns the map with the vehicle; dragging the map or `Esc` stops following.
 - **Cyclists**, including faster e-bikes, on cycle paths and streets. Contraflow cycling is allowed where OSM tags it.
 - **Pedestrians** on footways, pavements and paths, simulated around the area you are viewing at street level
 - All modes follow the real street network: about 56,000 street segments from OpenStreetMap, with one-way rules, roundabouts and speed limits
@@ -60,9 +62,11 @@ Change the street network on the map and watch simulated traffic adapt:
 - **New cycle path:** draw a two-way path between two junctions, with bends. It's open to cyclists and pedestrians.
 - **Undo on street**, an undo button per change, and **Restore original network**
 
+**Before and after.** At your first change, the simulation forks: a copy keeps running on the original network, in step and with the same demand. The dashboard then compares the two since your last change: car journey time, car speed, share of time delayed, car kilometres and CO₂ per hour, and bus delay. On the map, streets with clearly more car traffic turn orange and streets with less turn blue. Both runs are simulated, and differences of a few percent can be chance.
+
 Pick a tool in the **Road changes** panel, then click streets on the map; the street under the pointer is highlighted first. Clicking a street again with the same tool undoes that change. Changes are drawn on the map in the tool's colour, with the new speed limit as a label.
 
-When the network changes, every trip whose remaining route is no longer allowed is rerouted from the end of the street it is on. New trips plan their routes on the changed network. The panel shows how many trips were rerouted and how many had no way left. Buses and trains keep to their timetables and don't react to road changes yet.
+When the network changes, every trip whose remaining route is no longer allowed is rerouted from the end of the street it is on. New trips plan their routes on the changed network. The panel shows how many trips were rerouted and how many had no way left. Buses divert around closed roads; trains keep to their timetable.
 
 ![Road changes near Hilversum station: a closed street (red), a 30 km/h limit, a car-free street (green) and a new cycle path (teal)](docs/screenshot-road-changes.png)
 
@@ -71,6 +75,12 @@ When the network changes, every trip whose remaining route is no longer allowed 
 - **Buses and trains run on their real routes and stops** from OpenStreetMap: Transdev's Gooi lines, R-net 320/321, Hilversum city lines, U-OV and Keolis lines, and NS Intercity and Sprinter services
 - **Real timetables:** every trip on a normal weekday comes from the national GTFS feed (2,363 trips). Vehicles pass their stops at the scheduled times, pause at each stop and ease in between. Night buses and seasonal lines don't run on that weekday, so they don't appear.
 - Buses carry their line colour, and a badge with the line number floats above every bus. Trains are drawn carriage by carriage in NS yellow and blue.
+- **Buses drive in the simulated traffic.** Each scheduled trip drives its real route and stops at its stops. It never leaves a stop early, and between stops it aims for the scheduled arrival without exceeding the limit. Where the route follows a simulated street (about 70% of route length), the bus queues behind cars, waits at red lights and has cars queue behind it. Where a street on the route is closed, it takes the fastest diversion and rejoins the route, skipping the stops in between. Delays build up from all of this and are shown in the dashboard. They are simulated, not live.
+- **Route diagram:** while following a bus, a schematic of its whole line appears, with the outbound direction down the left and the return direction up the right. It shows every stop by name (stop names come from the GTFS feed), the passengers waiting at each stop, and every bus on the line; click one to follow it.
+- **Passengers are simulated with assumed demand** (there is no ridership data). They arrive at stops at a rate that follows the rush hours and is higher at stops served by several lines and at stations. They board the next bus, which makes stops take longer, and get off along the way.
+- Trains keep exactly to the timetable.
+
+![Following an R-net 320 bus in Huizen, with the route diagram of the whole line](docs/screenshot-follow-bus.png)
 
 ![Huizen at dusk, with an R-net bus](docs/screenshot-huizen-dusk.png)
 
@@ -85,7 +95,7 @@ When the network changes, every trip whose remaining route is no longer allowed 
 | `Space` | Play / pause simulation |
 | `/` | Focus search |
 | `?` | Show shortcuts |
-| `Esc` | Stop editing roads / cancel a cycle path |
+| `Esc` | Stop following / editing roads / cancel a cycle path |
 | `Enter` / `Backspace` | Finish the cycle path / undo its last bend |
 
 ## Technology
@@ -131,7 +141,9 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, 
 - **Data build (offline).** `scripts/fetch-osm.mjs` downloads all streets and paths in the Gooi from the Overpass API. It splits them at junctions, works out car, bike and foot access in each direction, and keeps each mode's connected network. Roads leaving the area stay connected through a virtual "outside world" node, so through traffic works. It also extracts bus and train route relations, stitching their ways into continuous lines and projecting the stops onto them. `scripts/fetch-timetables.mjs` then streams the national GTFS feed. It matches every trip serving the Gooi to its OSM route variant by line number or train series, stop positions and stop order, and stores the trip's stop times. The outputs are compact (≈1 MB gzipped together) and are committed.
 - **Simulation in a Web Worker.** Routing and stepping thousands of agents run off the main thread, so the map stays smooth. About 30 times a second the worker sends the positions of visible agents as a typed array. Close up, the main thread uploads them as instances to a custom WebGL layer (`agentLayer.ts`, one instanced draw call per agent kind, low-poly models in `models.ts`). Zoomed out, they go through MapLibre symbol layers. There are no DOM elements per vehicle, and React only gets statistics, four times a second.
 - **Routing.** Car and bike trips start or end in about 250–400 destination zones per mode. Each zone has a cached shortest-path tree (one Dijkstra, about 4 ms), so a new trip's route is a pointer walk. Pedestrians use A* over short distances.
-- **Transit** positions are a pure function of the clock (timetable interpolation), so time jumps are instant.
+- **Trains** are a pure function of the clock (timetable interpolation), so time jumps are instant. **Buses** (`buses.ts`) are stateful vehicles. At start-up each bus line is matched to the street edges it runs along (sampled every 6 m, snapped by distance and direction), so buses can take part in car-following and signals, and cars can queue behind them.
+- **Traffic lights** (`signals.ts`): states are a pure function of the clock per controller, with an offset per junction.
+- **Comparison:** at the first edit the worker forks the traffic model and bus fleet onto the original network and steps both. Each run keeps totals since the last edit (car-seconds, car-km, delayed car-seconds, journeys, bus delay, and cars entering each street), which the worker compares every 1.5 s. It sends the map street geometry once per street.
 - **Trees and street lights** are drawn by a second instanced WebGL layer (`sceneryLayer.ts`), but only in 250 m cells near the camera (up to 110,000 trees and 12,000 lamps). Forest cells are generated on demand from the OSM outlines on a jittered 7.5 m grid, a few per frame, and cached. The light pools are a MapLibre circle layer that fades in with the night.
 - **Road changes.** The main thread sends the whole scenario (closed or restricted segments, speed limits, new cycle paths) to the worker. The worker rebuilds the network from the original file (about 25 ms), clears the mode bits and changes the speeds of the edited streets, and appends new cycle paths after the original segments, so existing edge ids stay valid. Cached path trees are dropped. Trips whose remaining route is no longer allowed are rerouted a few at a time (at most 6 ms per step). Picking a street under the pointer also happens in the worker, on the original geometry.
 
@@ -151,7 +163,9 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 
 - **All traffic is simulated.** Car, bike and pedestrian numbers, speeds, journey times, delays and emissions come from a simplified model with assumed demand. They are not observations or predictions of real traffic.
 - Buses and trains follow real timetables for one representative weekday (shown in the dashboard), but there is no live data: positions between stops are interpolated, and delays are not modelled. Transit vehicles don't interact with road traffic.
-- No traffic lights, lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other.
+- No lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other. Traffic-light timings and phases are assumed (fixed two-phase cycles), not the real signal plans.
+- Bus passengers are simulated with assumed demand; there is no ridership data. Buses have no capacity limit. Bus stretches without a matching simulated street (such as dedicated busways) are driven freely. Bus delays are simulated and don't reflect real punctuality. Trains don't interact with anything.
+- The before/after comparison runs both versions with the same demand, so it shows rerouting and congestion effects, not changes in how people choose to travel. While a comparison is running the simulation does twice the work, so at 60× the clock can run slower than requested.
 - Pedestrians are only simulated around a street-level view (zoom 15+).
 - Road changes work per street segment (junction to junction), and only the model reacts to them: buses keep their timetable, and the demand doesn't change (no one decides to cycle because a road was closed). New cycle paths are straight lines between the points you click and don't cross other streets at grade. Changes are not saved when the page is reloaded.
 - CO₂ is a rough estimate (cars only, 150 g/km).
@@ -164,7 +178,8 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 - [x] Milestone 1: interactive 3D map
 - [x] Milestone 2: multimodal simulation, real transit routes and timetables, day/night
 - [x] Milestone 3a: road closures, speed limits, car-free, pedestrian and bus-only streets, new cycle paths, with rerouting and restore
-- [ ] Next: before/after scenario comparison, saving and sharing scenarios in the link, housing developments, traffic lights, buses affected by road traffic
+- [x] Before/after comparison, traffic lights, buses in traffic, following vehicles, route diagrams with simulated passengers
+- [ ] Next: saving and sharing scenarios in the link, housing developments, signal timing edits
 
 ## Refreshing the data
 

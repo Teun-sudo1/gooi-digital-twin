@@ -1,7 +1,7 @@
 import { Mode, SegmentFlag, type NetworkFile, type Projection } from '../../types/simulation'
 
-/** Bits in Network.edgeModes. */
-export const MODE_BIT = [1, 2, 4] as const
+/** Bits in Network.edgeModes, indexed by Mode. */
+export const MODE_BIT = [1, 2, 4, 8] as const
 
 /** Right-of-way rank for cars arriving at a junction; higher goes first. */
 const PRIORITY: Record<string, number> = {
@@ -64,7 +64,7 @@ export interface Network {
   edgeStartHeading: Float32Array
   edgeEndHeading: Float32Array
   /** Per-mode travel speed on each edge (m/s); 0 when the mode is not allowed. */
-  edgeSpeed: [Float32Array, Float32Array, Float32Array]
+  edgeSpeed: [Float32Array, Float32Array, Float32Array, Float32Array]
 
   /** Outgoing / incoming edges per node in compressed (CSR) form. */
   outStart: Int32Array
@@ -72,7 +72,11 @@ export interface Network {
   inStart: Int32Array
   inEdges: Int32Array
 
-  maxSpeed: [number, number, number]
+  maxSpeed: [number, number, number, number]
+
+  /** Traffic-light controller per node (index into `signals`), or -1. */
+  nodeSignal: Int32Array
+  signals: number[][]
 }
 
 export function toLngLat(projection: Projection, x: number, y: number): [number, number] {
@@ -146,8 +150,10 @@ export function buildNetwork(file: NetworkFile): Network {
   for (let s = 0; s < segmentCount; s++) {
     const f = segFlags[s]
     const foot = f & SegmentFlag.Foot ? MODE_BIT[Mode.Foot] : 0
-    const fwd = (f & SegmentFlag.CarForward ? MODE_BIT[Mode.Car] : 0) | (f & SegmentFlag.BikeForward ? MODE_BIT[Mode.Bike] : 0) | foot
-    const bwd = (f & SegmentFlag.CarBackward ? MODE_BIT[Mode.Car] : 0) | (f & SegmentFlag.BikeBackward ? MODE_BIT[Mode.Bike] : 0) | foot
+    // Buses may drive wherever cars may (bus-only edits add streets for them alone).
+    const motor = MODE_BIT[Mode.Car] | MODE_BIT[Mode.Bus]
+    const fwd = (f & SegmentFlag.CarForward ? motor : 0) | (f & SegmentFlag.BikeForward ? MODE_BIT[Mode.Bike] : 0) | foot
+    const bwd = (f & SegmentFlag.CarBackward ? motor : 0) | (f & SegmentFlag.BikeBackward ? MODE_BIT[Mode.Bike] : 0) | foot
     if (fwd) {
       edgeSegList.push(s)
       edgeRevList.push(0)
@@ -168,12 +174,13 @@ export function buildNetwork(file: NetworkFile): Network {
   const edgePriority = new Int8Array(edgeCount)
   const edgeStartHeading = new Float32Array(edgeCount)
   const edgeEndHeading = new Float32Array(edgeCount)
-  const edgeSpeed: [Float32Array, Float32Array, Float32Array] = [
+  const edgeSpeed: [Float32Array, Float32Array, Float32Array, Float32Array] = [
+    new Float32Array(edgeCount),
     new Float32Array(edgeCount),
     new Float32Array(edgeCount),
     new Float32Array(edgeCount),
   ]
-  const maxSpeed: [number, number, number] = [1, 1, 1]
+  const maxSpeed: [number, number, number, number] = [1, 1, 1, 1]
 
   for (let e = 0; e < edgeCount; e++) {
     const s = edgeSeg[e]
@@ -194,7 +201,8 @@ export function buildNetwork(file: NetworkFile): Network {
     if (modes & MODE_BIT[Mode.Car]) edgeSpeed[Mode.Car][e] = segCarSpeed[s]
     if (modes & MODE_BIT[Mode.Bike]) edgeSpeed[Mode.Bike][e] = BIKE_SPEED[cls] ?? 4.2
     if (modes & MODE_BIT[Mode.Foot]) edgeSpeed[Mode.Foot][e] = cls === 'steps' ? STEPS_SPEED : WALK_SPEED
-    for (let m = 0; m < 3; m++) maxSpeed[m] = Math.max(maxSpeed[m], edgeSpeed[m][e])
+    if (modes & MODE_BIT[Mode.Bus]) edgeSpeed[Mode.Bus][e] = segCarSpeed[s]
+    for (let m = 0; m < 4; m++) maxSpeed[m] = Math.max(maxSpeed[m], edgeSpeed[m][e])
   }
 
   const csr = (key: Int32Array) => {
@@ -208,6 +216,12 @@ export function buildNetwork(file: NetworkFile): Network {
   }
   const [outStart, outEdges] = csr(edgeFrom)
   const [inStart, inEdges] = csr(edgeTo)
+
+  const signals = (file.signals ?? []).filter((nodes) => nodes.every((i) => Number.isInteger(i) && i >= 0 && i < nodeCount))
+  const nodeSignal = new Int32Array(nodeCount).fill(-1)
+  signals.forEach((nodes, k) => {
+    for (const i of nodes) nodeSignal[i] = k
+  })
 
   return {
     projection,
@@ -243,6 +257,8 @@ export function buildNetwork(file: NetworkFile): Network {
     inStart,
     inEdges,
     maxSpeed,
+    nodeSignal,
+    signals,
   }
 }
 

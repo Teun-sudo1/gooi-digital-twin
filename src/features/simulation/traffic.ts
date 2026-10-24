@@ -3,10 +3,12 @@ import {
   AgentFlag,
   Kind,
   Mode,
+  type FollowInfo,
   type Viewport,
 } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute, TreeCache, type Route } from './routing'
+import { SignalState, type Signals } from './signals'
 
 /*
  * Street traffic: cars (five vehicle types), bicycles and pedestrians on the
@@ -25,6 +27,9 @@ import { findRoute, TreeCache, type Route } from './routing'
  *   keep a time gap to the car ahead. Bikes follow bikes; pedestrians walk.
  * - Pedestrians are only simulated around the area being viewed, which keeps
  *   the cost proportional to what can be seen.
+ * - Cars and bikes stop for red at signalised junctions, and cars queue
+ *   behind buses (which are moved by the bus fleet and passed in as
+ *   `externals`).
  * - When the road network changes (a scenario edit), trips whose remaining
  *   route is no longer allowed are rerouted from the end of the street they
  *   are on, a few at a time; trips with no way left leave the network.
@@ -84,6 +89,23 @@ const PEDESTRIAN_MIN_ZOOM = 15
 const MAX_PEDESTRIANS = 450
 /** Wall-clock time per step spent rerouting trips after a network change. */
 const REROUTE_BUDGET_MS = 6
+/** Ids in frames must stay exact as 32-bit floats; buses and trains use ids above this. */
+export const ROAD_ID_LIMIT = 8_000_000
+
+/**
+ * Totals for comparing two runs of the model (the original network and a
+ * scenario), restarted whenever the comparison restarts.
+ */
+export interface Measures {
+  seconds: number
+  carSeconds: number
+  carKm: number
+  delayedCarSeconds: number
+  journeySeconds: number
+  journeys: number
+  /** Cars entering each street segment. */
+  flow: Float32Array
+}
 
 export interface Agent {
   id: number
@@ -107,6 +129,8 @@ export interface Agent {
   destIsZone: boolean
   /** Set when a network change made the rest of the route invalid. */
   needsRoute: boolean
+  /** A vehicle moved elsewhere (a bus) that cars still queue behind. */
+  external?: boolean
   departedAt: number
   slowFor: number
   braking: boolean
@@ -223,10 +247,15 @@ export class TrafficModel {
   density: number
   agents: Agent[] = []
   viewport: Viewport | null = null
+  /** Traffic lights; cars and bikes stop for red. */
+  signals: Signals | null = null
+  /** Vehicles moved by other models (buses) that cars queue behind. Set before each step. */
+  externals: Agent[] = []
+  measures: Measures
 
   private random: () => number
   private nextId = 1
-  private budget = [0, 0, 0]
+  private budget = [0, 0, 0, 0]
   private trees: TreeCache
   private treeCapacity: number
   private pendingReroutes = 0
@@ -258,6 +287,27 @@ export class TrafficModel {
       }
     }
     this.footNodes = Int32Array.from(foot)
+    this.measures = this.emptyMeasures()
+  }
+
+  private emptyMeasures(): Measures {
+    return { seconds: 0, carSeconds: 0, carKm: 0, delayedCarSeconds: 0, journeySeconds: 0, journeys: 0, flow: new Float32Array(this.net.segmentCount) }
+  }
+
+  resetMeasures() {
+    this.measures = this.emptyMeasures()
+  }
+
+  /**
+   * A copy of this model on another network, with the same trips under way,
+   * for running the original network alongside a scenario.
+   */
+  fork(net: Network, seed: number): TrafficModel {
+    const copy = new TrafficModel(net, { density: this.density, startClock: this.clock, seed, treeCapacity: this.treeCapacity })
+    copy.nextId = this.nextId
+    copy.signals = this.signals
+    copy.agents = this.agents.filter((a) => a.mode !== Mode.Foot).map((a) => ({ ...a }))
+    return copy
   }
 
   get zoneInfo() {
@@ -297,7 +347,7 @@ export class TrafficModel {
     const delta = this.clock - before
     if (Math.abs(delta) > 600) {
       this.agents = this.agents.filter((a) => a.mode === Mode.Foot)
-      this.budget = [0, 0, 0]
+      this.budget = [0, 0, 0, 0]
       this.populate()
       return
     }
@@ -333,6 +383,7 @@ export class TrafficModel {
 
   step(dt: number) {
     this.clock = (this.clock + dt) % DAY
+    this.measures.seconds += dt
     this.trees.builtThisTick = 0
     if (this.pendingReroutes) this.reroutePending()
     this.spawnAll(dt)
@@ -619,12 +670,22 @@ export class TrafficModel {
     return false
   }
 
+  /** The first car (or bus) on an edge beyond `offset`, other than `self`. */
+  firstAhead(edge: number, offset: number, self: Agent | null): Agent | null {
+    const list = this.occupancy.get(edge * 2 + Mode.Car)
+    if (!list) return null
+    for (const a of list) if (a !== self && a.offset > offset) return a
+    return null
+  }
+
   private move(dt: number) {
     const net = this.net
     const occupancy = this.occupancy
+    const signals = this.signals
+    const measures = this.measures
     occupancy.clear()
     // Cars and bikes queue separately (key edge*2 + group); pedestrians pass each other freely.
-    for (const a of this.agents) {
+    for (const a of [...this.agents, ...this.externals]) {
       if (a.mode === Mode.Foot) continue
       const key = a.edges[a.idx] * 2 + a.mode
       const list = occupancy.get(key)
@@ -637,16 +698,25 @@ export class TrafficModel {
       const edge = key >> 1
       const isCar = (key & 1) === 0
       const length = edgeLength(net, edge)
+      const light = signals ? signals.stateForEdge(edge, this.clock) : -1
       for (let i = 0; i < list.length; i++) {
         const a = list[i]
+        if (a.external) continue
         const next = a.idx + 1 < a.edges.length ? a.edges[a.idx + 1] : -1
         const toEnd = length - a.offset
         let target = this.cruise(a.mode, edge, a.desired, a.top)
 
+        // Red, or amber with room to stop: halt at the stop line.
+        if (next >= 0 && light !== -1 && light !== SignalState.Green) {
+          if (light === SignalState.Red || toEnd - 2 > (a.speed * a.speed) / (2 * 4)) {
+            target = Math.min(target, Math.sqrt(2 * COMFORT_DECEL * Math.max(0, toEnd - 2)))
+          }
+        }
         if (isCar) {
           const endSpeed = next >= 0 ? Math.min(cornerSpeed(net, edge, next), this.cruise(Mode.Car, next, a.desired, a.top)) : 2
           target = Math.min(target, Math.sqrt(endSpeed * endSpeed + 2 * COMFORT_DECEL * Math.max(0, toEnd - 1)))
-          if (next >= 0 && toEnd < YIELD_LOOKAHEAD && this.mustYield(edge, a)) {
+          // At traffic lights the signal decides who goes; elsewhere Dutch priority rules.
+          if (light === -1 && next >= 0 && toEnd < YIELD_LOOKAHEAD && this.mustYield(edge, a)) {
             target = Math.min(target, Math.sqrt(2 * COMFORT_DECEL * Math.max(0, toEnd - 1.5)))
           }
         } else if (next < 0) {
@@ -682,8 +752,12 @@ export class TrafficModel {
       }
       const travelled = a.speed * dt
       a.offset += travelled
-      if (a.mode === Mode.Car) this.carKm += travelled / 1000
-      else if (a.mode === Mode.Bike) this.bikeKm += travelled / 1000
+      if (a.mode === Mode.Car) {
+        this.carKm += travelled / 1000
+        measures.carKm += travelled / 1000
+        measures.carSeconds += dt
+        if (a.slowFor > DELAY_AFTER) measures.delayedCarSeconds += dt
+      } else if (a.mode === Mode.Bike) this.bikeKm += travelled / 1000
       let arrived = false
       while (!arrived && a.offset >= edgeLength(net, a.edges[a.idx])) {
         // Reaching the end of a street before the queued reroute: decide now.
@@ -701,11 +775,18 @@ export class TrafficModel {
           break
         }
         a.lateral = this.lateralFor(a.mode, a.edges[a.idx])
+        if (a.mode === Mode.Car) {
+          const s = net.edgeSeg[a.edges[a.idx]]
+          if (s < measures.flow.length) measures.flow[s]++
+        }
       }
       if (arrived) {
         if (a.mode === Mode.Car && a.idx >= a.edges.length) {
-          this.journeys.push((((this.clock - a.departedAt) % DAY) + DAY) % DAY)
+          const journey = (((this.clock - a.departedAt) % DAY) + DAY) % DAY
+          this.journeys.push(journey)
           if (this.journeys.length > JOURNEY_SAMPLE) this.journeys.shift()
+          measures.journeySeconds += journey
+          measures.journeys++
         }
         continue
       }
@@ -728,9 +809,10 @@ export class TrafficModel {
 
   /**
    * Writes visible agents into `out` (AGENT_STRIDE floats each: x, y,
-   * bearing, kind, colour, flags) and returns how many were written.
+   * bearing, kind, colour, flags, id) and returns how many were written.
+   * `follow` is always written when present, wherever it is.
    */
-  writeFrame(out: Float32Array, view: Viewport | null): number {
+  writeFrame(out: Float32Array, view: Viewport | null, follow = -1): number {
     const p = this.pose
     const margin = 60
     let n = 0
@@ -741,7 +823,8 @@ export class TrafficModel {
       // Shift to the right of the direction of travel.
       const x = p.x + p.dy * a.lateral
       const y = p.y - p.dx * a.lateral
-      if (view && (x < view.minX - margin || x > view.maxX + margin || y < view.minY - margin || y > view.maxY + margin)) continue
+      const id = a.id % ROAD_ID_LIMIT
+      if (view && id !== follow && (x < view.minX - margin || x > view.maxX + margin || y < view.minY - margin || y > view.maxY + margin)) continue
       const o = n * AGENT_STRIDE
       out[o] = x
       out[o + 1] = y
@@ -749,9 +832,39 @@ export class TrafficModel {
       out[o + 3] = a.kind
       out[o + 4] = a.colour
       out[o + 5] = (a.braking ? AgentFlag.Braking : 0) | (a.slowFor > DELAY_AFTER ? AgentFlag.Delayed : 0)
+      out[o + 6] = id
       n++
     }
     return n
+  }
+
+  /** Details of one car, bike or pedestrian for the follow card, or null when it has gone. */
+  inspect(id: number): FollowInfo | null {
+    const a = this.agents.find((agent) => agent.id % ROAD_ID_LIMIT === id)
+    if (!a) return null
+    const net = this.net
+    let remaining = -a.offset
+    for (let k = a.idx; k < a.edges.length; k++) remaining += edgeLength(net, a.edges[k])
+    // The destination is the last named street on the route.
+    let destination: string | null = null
+    for (let k = a.edges.length - 1; k >= a.idx && destination === null; k--) {
+      const name = net.segName[net.edgeSeg[a.edges[k]]]
+      if (name >= 0) destination = net.names[name]
+    }
+    const edge = a.edges[a.idx]
+    const light = this.signals?.stateForEdge(edge, this.clock) ?? -1
+    return {
+      type: 'road',
+      id,
+      vehicle: a.kind,
+      speedKmh: a.speed * 3.6,
+      destination,
+      remainingKm: Math.max(0, remaining) / 1000,
+      tripMinutes: ((((this.clock - a.departedAt) % DAY) + DAY) % DAY) / 60,
+      delayed: a.slowFor > DELAY_AFTER,
+      waitingAtLight: a.speed < 1 && light === SignalState.Red && edgeLength(net, edge) - a.offset < 40,
+      street: net.segName[net.edgeSeg[edge]] >= 0 ? net.names[net.segName[net.edgeSeg[edge]]] : null,
+    }
   }
 
   stats() {

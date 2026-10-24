@@ -5,8 +5,8 @@
  * OpenStreetMap.
  */
 
-/** Travel modes on the street network. */
-export const Mode = { Car: 0, Bike: 1, Foot: 2 } as const
+/** Travel modes on the street network. Buses may use car streets and bus-only streets. */
+export const Mode = { Car: 0, Bike: 1, Foot: 2, Bus: 3 } as const
 export type Mode = (typeof Mode)[keyof typeof Mode]
 
 /**
@@ -23,6 +23,7 @@ export const Kind = {
   Pedestrian: 6,
   Bus: 7,
   TrainCar: 8,
+  TrafficLight: 9,
 } as const
 export type Kind = (typeof Kind)[keyof typeof Kind]
 
@@ -74,6 +75,8 @@ export interface NetworkFile {
     /** Interior points per segment, delta-encoded from the from-node. */
     geom: number[][]
   }
+  /** Signalised junctions from OSM: node indices per traffic-light controller. */
+  signals?: number[][]
 }
 
 export interface TransitLineRecord {
@@ -93,6 +96,8 @@ export interface TransitLineRecord {
   geom: number[]
   /** Stop positions as metres along the line. */
   stops: number[]
+  /** Stop names from the timetable feed, per stop (null when no timetable stop is near). */
+  stopNames?: (string | null)[]
   /**
    * Real scheduled trips on the timetable's service day (from GTFS), each as
    * flat [seconds since midnight, metres along the line, …] anchor pairs.
@@ -121,6 +126,9 @@ export interface TransitLineInfo {
   ref: string
   name: string
   colour: string
+  /** First and final stop, from OSM. */
+  from: string | null
+  to: string | null
   /** Where departures come from: a real GTFS timetable, an OSM interval tag, or an assumption. */
   schedule: 'timetable' | 'osm-interval' | 'assumed'
   /** Departures per day (timetable) or minutes between departures (otherwise). */
@@ -179,6 +187,12 @@ export interface SimulationStats {
   bikeKilometres: number
   /** Cars only; see CO2_KG_PER_KM. */
   estimatedCo2Kg: number
+  /** Average delay of buses in service against the timetable (null without buses). */
+  busDelayMinutes: number | null
+  /** Buses running three minutes late or more. */
+  busesLate: number
+  /** Buses on a diversion around a closed road. */
+  busDetours: number
   /** Trips given a new route because of the current road changes. */
   reroutedTrips: number
   /** Trips that lost every way to their destination and left the network. */
@@ -206,17 +220,103 @@ export type ToWorker =
   | { type: 'viewport'; viewport: Viewport }
   | { type: 'ack' }
   | { type: 'scenario'; interventions: Intervention[] }
+  /** Follow one vehicle: its details are reported and it is always in the frame. */
+  | { type: 'follow'; id: number | null }
   /** Find the street (or junction) nearest to a point, within `radius` metres. */
   | { type: 'pick'; id: number; target: 'segment' | 'junction'; lngLat: [number, number]; radius: number; mask: number }
 
-/** Floats per agent in a frame: x, y, bearing, kind, colour, flags. */
-export const AGENT_STRIDE = 6
+/** Floats per agent in a frame: x, y, bearing, kind, colour, flags, id. */
+export const AGENT_STRIDE = 7
 /** Flag bits in a frame. */
 export const AgentFlag = { Braking: 1, Delayed: 2 } as const
 
+/** Details of a followed vehicle. */
+export type FollowInfo =
+  | {
+      type: 'road'
+      id: number
+      vehicle: Kind
+      speedKmh: number
+      street: string | null
+      destination: string | null
+      remainingKm: number
+      tripMinutes: number
+      delayed: boolean
+      waitingAtLight: boolean
+    }
+  | {
+      type: 'bus' | 'train'
+      id: number
+      /** Index into the transit lines. */
+      line: number
+      speedKmh: number
+      /** Against the timetable, in minutes (trains run exactly to time). */
+      delayMinutes: number
+      nextStop: string | null
+      /** Scheduled time at the next stop, seconds since midnight. */
+      nextStopTime: number | null
+      detour: boolean
+      /** Simulated passengers on board (buses; assumed demand). */
+      onBoard: number | null
+      /** The whole line as a schematic loop (buses only). */
+      route: RouteDiagram | null
+    }
+
+/** One direction of a bus line for the route diagram. */
+export interface RouteSide {
+  /** Index into the transit lines. */
+  line: number
+  /** Stops in order, with simulated waiting passengers (assumed demand). */
+  stops: { name: string | null; waiting: number }[]
+  /** Buses on this direction: position in stops (fractional: 2.5 = halfway between the third and fourth stop). */
+  buses: { id: number; at: number; delayMinutes: number }[]
+}
+
+export interface RouteDiagram {
+  forward: RouteSide
+  /** The return direction, when it is mapped. */
+  back: RouteSide | null
+}
+
+/** A traffic light head, in local metres, facing `bearing`. */
+export interface SignalHead {
+  x: number
+  y: number
+  bearing: number
+}
+
+/** One side of a before/after comparison, measured since the last road change. */
+export interface ComparisonSide {
+  journeyMinutes: number | null
+  carSpeedKmh: number
+  carKmPerHour: number
+  /** Share of car time spent below 40% of the limit. */
+  delayedShare: number
+  co2KgPerHour: number
+  busDelayMinutes: number | null
+}
+
+/** Cars per hour on a street segment in both runs (geometry is sent the first time only). */
+export interface StreetChange {
+  segment: number
+  coordinates?: [number, number][]
+  original: number
+  scenario: number
+}
+
+export interface Comparison {
+  /** Simulated minutes since the last road change. */
+  minutes: number
+  original: ComparisonSide
+  scenario: ComparisonSide
+  streets: StreetChange[]
+}
+
 export type FromWorker =
-  | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null }
+  | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null; signals: SignalHead[] }
   | { type: 'error'; message: string }
-  | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number }
+  | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number; signals: Uint8Array }
+  | { type: 'follow'; id: number; info: FollowInfo | null }
+  | { type: 'comparison'; comparison: Comparison | null }
   | { type: 'stats'; stats: SimulationStats }
   | { type: 'pick'; id: number; segment: SegmentInfo | null; junction: JunctionInfo | null }

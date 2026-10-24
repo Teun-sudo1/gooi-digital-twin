@@ -27,3 +27,10 @@ export function formatCount(value: number): string {
 export function formatDecimal(value: number): string {
   return oneDecimal.format(value)
 }
+
+/** "Huizen, Karel Doormanlaan" → "Karel Doorman…": a stop name without its town, shortened to fit. */
+export function shortName(name: string | null, max = 14): string {
+  if (!name) return 'Stop'
+  const part = name.split(', ').pop()!
+  return part.length > max ? `${part.slice(0, max - 1)}…` : part
+}

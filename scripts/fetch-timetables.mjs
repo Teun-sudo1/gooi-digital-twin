@@ -254,7 +254,7 @@ async function main() {
   for await (const row of rows('stops.txt')) {
     const lat = Number(row.stop_lat)
     const lon = Number(row.stop_lon)
-    if (inBox(WIDE, lat, lon)) stops.set(row.stop_id, { lat, lon, near: inBox(NEAR, lat, lon) })
+    if (inBox(WIDE, lat, lon)) stops.set(row.stop_id, { lat, lon, near: inBox(NEAR, lat, lon), name: row.stop_name })
   }
 
   let scanned = 0
@@ -281,6 +281,8 @@ async function main() {
     byRef.get(key).push(i)
   })
   const matched = transit.lines.map(() => [])
+  /** GTFS stops served by the trips matched to each variant, for naming its OSM stops. */
+  const served = transit.lines.map(() => new Set())
   let used = 0
   for (const trip of trips.values()) {
     if (trip.stops.length < 2) continue
@@ -300,10 +302,38 @@ async function main() {
       const own = candidate.anchors.points.filter((p) => !taken.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < 300))
       if (taken.length && own.length < 3) continue
       matched[candidate.line].push(candidate.anchors.flat)
+      for (const s of trip.stops) served[candidate.line].add(s.stop)
       taken.push(...candidate.anchors.points)
     }
     used++
   }
+
+  // Name each OSM stop after the nearest GTFS stop its trips serve.
+  let named = 0
+  transit.lines.forEach((line, i) => {
+    const shape = shapes[i]
+    const reach = line.mode === 'train' ? 250 : 80
+    line.stopNames = line.stops.map((d) => {
+      let k = 1
+      while (k < shape.cum.length - 1 && shape.cum[k] < d) k++
+      const t = (d - shape.cum[k - 1]) / (shape.cum[k] - shape.cum[k - 1] || 1)
+      const x = shape.xs[k - 1] + (shape.xs[k] - shape.xs[k - 1]) * t
+      const y = shape.ys[k - 1] + (shape.ys[k] - shape.ys[k - 1]) * t
+      let best = null
+      let bestD = reach
+      for (const stop of served[i]) {
+        const [sx, sy] = project(stop.lon, stop.lat)
+        const dist = Math.hypot(sx - x, sy - y)
+        if (dist < bestD) {
+          bestD = dist
+          best = stop.name
+        }
+      }
+      if (best) named++
+      return best
+    })
+  })
+  console.log(`Named ${named} of ${transit.lines.reduce((n, l) => n + l.stops.length, 0)} stops.`)
 
   let withTimetable = 0
   transit.lines.forEach((line, i) => {
