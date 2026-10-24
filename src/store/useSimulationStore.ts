@@ -29,6 +29,8 @@ interface SimulationState {
   lines: TransitLineInfo[]
   /** Service date (YYYYMMDD) of the real timetable in use, or null when frequencies are assumed. */
   timetableDate: string | null
+  /** Time chosen on the slider while the simulation catches up, so the UI responds at once. */
+  draftClock: number | null
 }
 
 export const SPEED_OPTIONS = [1, 5, 20, 60]
@@ -45,4 +47,8 @@ export const useSimulationStore = create<SimulationState>(() => ({
   history: [],
   lines: [],
   timetableDate: null,
+  draftClock: null,
 }))
+
+/** The time of day to show: a just-chosen time first, then the simulation's own clock. */
+export const selectClock = (s: SimulationState) => s.draftClock ?? s.stats?.clock ?? s.startClock

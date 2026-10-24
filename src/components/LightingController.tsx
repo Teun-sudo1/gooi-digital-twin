@@ -3,7 +3,7 @@ import { applyTheme, nightFactorFor } from '../features/map/lighting'
 import { applyPalette, paletteFor } from '../features/map/style'
 import { useMapInstance } from '../hooks/useMapInstance'
 import { useAppStore } from '../store/useAppStore'
-import { useSimulationStore } from '../store/useSimulationStore'
+import { selectClock, useSimulationStore } from '../store/useSimulationStore'
 
 /**
  * Follows the simulated sun: recolours the map, switches the interface
@@ -15,7 +15,7 @@ export function LightingController() {
   const mode = useAppStore((s) => s.lightingMode)
   const controller = useSimulationStore((s) => s.controller)
   // Quantised so the map is only recoloured when the light visibly changes.
-  const night = useSimulationStore((s) => Math.round(nightFactorFor(mode, s.stats?.clock ?? s.startClock) * 40) / 40)
+  const night = useSimulationStore((s) => Math.round(nightFactorFor(mode, selectClock(s)) * 40) / 40)
 
   useEffect(() => applyTheme(night), [night])
   useEffect(() => {

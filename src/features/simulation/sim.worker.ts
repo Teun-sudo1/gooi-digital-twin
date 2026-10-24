@@ -31,6 +31,8 @@ let playing = true
 let speed = 5
 let viewport: Viewport | null = null
 let awaitingAck = false
+/** Latest requested time of day; applied once per tick so a dragged slider doesn't queue up jumps. */
+let pendingClock: number | null = null
 let lastTick = 0
 let lastStats = 0
 const agentBuffer = new Float32Array(AGENT_STRIDE * 25_000)
@@ -43,6 +45,11 @@ function tick() {
   const realDt = Math.min((started - lastTick) / 1000, 0.25)
   lastTick = started
   if (traffic && transit) {
+    if (pendingClock !== null) {
+      traffic.jumpTo(pendingClock)
+      pendingClock = null
+      lastStats = 0 // report the new time straight away
+    }
     if (playing) {
       let remaining = realDt * speed
       while (remaining > 1e-6) {
@@ -104,7 +111,7 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       if (traffic) traffic.density = message.density
       break
     case 'clock':
-      traffic?.jumpTo(message.clock)
+      pendingClock = message.clock
       break
     case 'viewport':
       viewport = message.viewport

@@ -1,4 +1,4 @@
-import { SPEED_OPTIONS, useSimulationStore } from '../store/useSimulationStore'
+import { selectClock, SPEED_OPTIONS, useSimulationStore } from '../store/useSimulationStore'
 import { sunElevation } from '../features/map/lighting'
 import { dayPeriod, formatClock } from '../utils/format'
 
@@ -10,7 +10,7 @@ export function SimulationBar() {
   const playing = useSimulationStore((s) => s.playing)
   const speed = useSimulationStore((s) => s.speed)
   const density = useSimulationStore((s) => s.density)
-  const clock = useSimulationStore((s) => s.stats?.clock ?? s.startClock)
+  const clock = useSimulationStore(selectClock)
 
   if (status === 'error') {
     return (
@@ -72,6 +72,7 @@ export function SimulationBar() {
           value={Math.floor(clock / 60)}
           disabled={!ready}
           onChange={(e) => controller?.setClock(Number(e.target.value) * 60)}
+          title="Drag to change the simulated time of day"
           aria-valuetext={formatClock(clock)}
         />
       </label>

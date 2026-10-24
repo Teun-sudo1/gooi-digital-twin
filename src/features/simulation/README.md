@@ -12,3 +12,4 @@ timetables are real.
 - `client.ts`: main-thread side: map layers, frame rendering, viewport updates, statistics
 - `icons.ts`: vehicle and people icons drawn on canvas
 - `simulation.test.ts`: unit tests on a synthetic network and the real data
+- `agentLayer.ts` / `models.ts`: 3D rendering of all agents in a custom WebGL layer (instanced low-poly models)

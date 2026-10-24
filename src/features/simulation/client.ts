@@ -10,7 +10,8 @@ import {
   type ToWorker,
   type TransitLineInfo,
 } from '../../types/simulation'
-import { agentIcon, registerIcons } from './icons'
+import { AgentLayer, INSTANCE_FLOATS, InstanceFlag, MODEL_MIN_ZOOM } from './agentLayer'
+import { agentIcon, CAR_COLOURS, CLOTHING_COLOURS, registerIcons } from './icons'
 import { fromLngLat, toLngLat } from './network'
 
 const AGENTS = 'sim-agents'
@@ -40,6 +41,21 @@ const TRAIN_SIZE: ExpressionSpecification = ['interpolate', ['exponential', 2], 
 
 type Pool = Feature<Point, Record<string, string | number>>[]
 
+const rgb = (hex: string): [number, number, number] => {
+  const n = Number.parseInt(hex.slice(1), 16)
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
+}
+const PAINT = CAR_COLOURS.map(rgb)
+const CLOTHING = CLOTHING_COLOURS.map(rgb)
+const TROUSERS = ['#2b3442', '#3d3a36', '#1f2a44', '#4a4f57'].map(rgb)
+const FRAME = rgb('#30343b')
+const CARGO = rgb('#e9ecef')
+const BUS_BODY = rgb('#f1f3f5')
+const TRAIN = [
+  [rgb('#ffc917'), rgb('#003082')], // NS
+  [rgb('#f1f3f5'), rgb('#c92a2a')], // international
+]
+
 /** Dark or light text, whichever reads better on a line colour. */
 function readableOn(hex: string) {
   const n = Number.parseInt(hex.slice(1), 16)
@@ -66,6 +82,8 @@ export class SimulationClient {
   private night = 0
   private disposed = false
   private viewportTimer = 0
+  private models: AgentLayer | null = null
+  private instances = new Float32Array(0)
 
   constructor(map: MapLibreMap) {
     this.map = map
@@ -109,11 +127,14 @@ export class SimulationClient {
   setClock(clock: number) {
     this.post({ type: 'clock', clock })
     this.resetHistory = true
+    // Show the chosen time immediately; cleared once the simulation reports it.
+    useSimulationStore.setState({ draftClock: clock })
   }
 
   /** 0 = day, 1 = night: fades vehicle headlights in and out. */
   setNight(night: number) {
     this.night = night
+    this.models?.setNight(night)
     if (!this.map.getLayer('sim-headlights')) return
     this.map.setLayoutProperty('sim-headlights', 'visibility', night > 0.05 && this.trafficVisible() ? 'visible' : 'none')
     this.map.setPaintProperty('sim-headlights', 'icon-opacity', Math.min(1, night) * 0.85)
@@ -126,7 +147,7 @@ export class SimulationClient {
     this.map.off('moveend', this.sendViewport)
     window.clearTimeout(this.viewportTimer)
     if (!this.map.getStyle()) return
-    for (const layer of ['sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
+    for (const layer of ['sim-agents-3d', 'sim-trains', 'sim-transit', 'sim-agents', 'sim-headlights', STOPS, ROUTES]) {
       if (this.map.getLayer(layer)) this.map.removeLayer(layer)
     }
     for (const source of [AGENTS, TRANSIT, ROUTES, STOPS]) {
@@ -200,7 +221,9 @@ export class SimulationClient {
           this.lastSample = stats.clock
           this.resetHistory = false
         }
-        useSimulationStore.setState({ stats, history })
+        const { draftClock } = useSimulationStore.getState()
+        const caughtUp = draftClock === null || Math.abs(((stats.clock - draftClock + 129_600) % 86_400) - 43_200) < 120
+        useSimulationStore.setState({ stats, history, draftClock: caughtUp ? null : draftClock })
         break
       }
     }
@@ -211,8 +234,13 @@ export class SimulationClient {
     if (!projection) return
     // When zoomed out, motion per frame is sub-pixel: redraw ~10× per second to save work.
     const now = performance.now()
-    if (this.map.getZoom() < 13 && now - this.lastRender < 90) return
+    const zoom = this.map.getZoom()
+    if (zoom < 13 && now - this.lastRender < 90) return
     this.lastRender = now
+
+    // Close up, agents are 3D models; further out, flat icons (cheaper and easier to see).
+    if (zoom >= MODEL_MIN_ZOOM - 0.25) this.renderModels(agents, agentCount, transit, transitCount)
+    if (zoom >= MODEL_MIN_ZOOM + 0.25) return
 
     const fill = (pool: Pool, data: Float32Array, count: number, transitLayer: boolean) => {
       for (let i = 0; i < count; i++) {
@@ -241,6 +269,65 @@ export class SimulationClient {
 
     this.map.getSource<GeoJSONSource>(AGENTS)?.setData({ type: 'FeatureCollection', features: fill(this.agentPool, agents, agentCount, false) })
     this.map.getSource<GeoJSONSource>(TRANSIT)?.setData({ type: 'FeatureCollection', features: fill(this.transitPool, transit, transitCount, true) })
+  }
+
+  /** Builds per-instance data for the 3D layer, grouped by kind. */
+  private renderModels(agents: Float32Array, agentCount: number, transit: Float32Array, transitCount: number) {
+    const layer = this.models
+    if (!layer) return
+    const { traffic, transit: showTransit } = useAppStore.getState().layerVisibility
+    const projection = this.projection!
+    const kinds = 9
+    const counts = new Array<number>(kinds).fill(0)
+    const sources: [Float32Array, number][] = []
+    if (traffic) sources.push([agents, agentCount])
+    if (showTransit) sources.push([transit, transitCount])
+    for (const [data, count] of sources) for (let i = 0; i < count; i++) counts[data[i * AGENT_STRIDE + 3]]++
+    const starts = new Array<number>(kinds).fill(0)
+    for (let k = 1; k < kinds; k++) starts[k] = starts[k - 1] + counts[k - 1]
+    const total = starts[kinds - 1] + counts[kinds - 1]
+    if (this.instances.length < total * INSTANCE_FLOATS) this.instances = new Float32Array(Math.ceil(total * 1.3) * INSTANCE_FLOATS)
+    const out = this.instances
+    const fill = [...starts]
+    for (const [data, count] of sources) {
+      for (let i = 0; i < count; i++) {
+        const o = i * AGENT_STRIDE
+        const kind = data[o + 3]
+        const variant = data[o + 4]
+        const flags = data[o + 5]
+        const [lng, lat] = toLngLat(projection, data[o], data[o + 1])
+        const [dx, dy] = layer.offset(lng, lat)
+        let primary: [number, number, number]
+        let secondary: [number, number, number]
+        if (kind <= Kind.Truck) {
+          primary = PAINT[variant] ?? PAINT[0]
+          secondary = kind === Kind.Truck ? CARGO : primary
+        } else if (kind === Kind.Bike) {
+          primary = CLOTHING[variant] ?? CLOTHING[0]
+          secondary = FRAME
+        } else if (kind === Kind.Pedestrian) {
+          primary = CLOTHING[variant] ?? CLOTHING[0]
+          secondary = TROUSERS[variant % TROUSERS.length]
+        } else if (kind === Kind.Bus) {
+          primary = BUS_BODY
+          secondary = rgb(this.lines[variant]?.colour ?? '#2f9e6e')
+        } else {
+          ;[primary, secondary] = TRAIN[flags] ?? TRAIN[0]
+        }
+        const w = fill[kind]++ * INSTANCE_FLOATS
+        out[w] = dx
+        out[w + 1] = dy
+        out[w + 2] = (data[o + 2] * Math.PI) / 180
+        out[w + 3] = primary[0]
+        out[w + 4] = primary[1]
+        out[w + 5] = primary[2]
+        out[w + 6] = secondary[0]
+        out[w + 7] = secondary[1]
+        out[w + 8] = secondary[2]
+        out[w + 9] = kind <= Kind.Truck && flags & 1 ? InstanceFlag.Braking : 0
+      }
+    }
+    layer.setInstances(out.subarray(0, total * INSTANCE_FLOATS), starts, counts)
   }
 
   private addLayers() {
@@ -308,6 +395,7 @@ export class SimulationClient {
     map.addLayer(
       {
         id: 'sim-headlights',
+        maxzoom: MODEL_MIN_ZOOM,
         type: 'symbol',
         source: AGENTS,
         filter: ['<=', ['get', 'k'], Kind.Truck],
@@ -327,6 +415,7 @@ export class SimulationClient {
     map.addLayer(
       {
         id: 'sim-agents',
+        maxzoom: MODEL_MIN_ZOOM,
         type: 'symbol',
         source: AGENTS,
         layout: { ...vehicleLayout, 'icon-image': ['get', 'i'], 'icon-size': AGENT_SIZE, visibility: show(visibility.traffic) },
@@ -336,6 +425,7 @@ export class SimulationClient {
     map.addLayer(
       {
         id: 'sim-trains',
+        maxzoom: MODEL_MIN_ZOOM,
         type: 'symbol',
         source: TRANSIT,
         filter: ['==', ['get', 'k'], Kind.TrainCar],
@@ -346,6 +436,7 @@ export class SimulationClient {
     map.addLayer(
       {
         id: 'sim-transit',
+        maxzoom: MODEL_MIN_ZOOM,
         type: 'symbol',
         source: TRANSIT,
         filter: ['==', ['get', 'k'], Kind.Bus],
@@ -366,5 +457,9 @@ export class SimulationClient {
       },
       before,
     )
+    // 3D models share the depth buffer with the buildings, drawn after them.
+    this.models = new AgentLayer(this.projection!.lng0, this.projection!.lat0)
+    this.models.setNight(this.night)
+    map.addLayer(this.models, map.getLayer('label-water') ? 'label-water' : undefined)
   }
 }

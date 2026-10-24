@@ -32,6 +32,7 @@ Everything runs in the browser as a static site. There is no backend.
 
 ### Simulated traffic
 
+- **Every agent is a 3D model** from street level up to zoom 13.5: cars (with glazed cabins, wheels, head- and brake lights), vans, trucks, buses in their line colours, NS train carriages, cyclists and pedestrians. They're drawn in a custom WebGL layer that shares depth with the 3D buildings. Agents are drawn larger than life (1.5× at street level, more when zoomed out), and further out they switch to flat icons.
 - **Cars** of five types (hatchback, sedan, SUV, van, truck), each with its own size, colours, acceleration and top speed. Brake lights show when a car slows or stops.
 - **Cyclists**, including faster e-bikes, on cycle paths and streets. Contraflow cycling is allowed where OSM tags it.
 - **Pedestrians** on footways, pavements and paths, simulated around the area you are viewing at street level
@@ -101,7 +102,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs
 ```
 
 - **Data build (offline).** `scripts/fetch-osm.mjs` downloads all streets and paths in the Gooi from the Overpass API. It splits them at junctions, works out car, bike and foot access in each direction, and keeps each mode's connected network. Roads leaving the area stay connected through a virtual "outside world" node, so through traffic works. It also extracts bus and train route relations, stitching their ways into continuous lines and projecting the stops onto them. `scripts/fetch-timetables.mjs` then streams the national GTFS feed. It matches every trip serving the Gooi to its OSM route variant by line number or train series, stop positions and stop order, and stores the trip's stop times. The outputs are compact (≈1 MB gzipped together) and are committed.
-- **Simulation in a Web Worker.** Routing and stepping thousands of agents run off the main thread, so the map stays smooth. About 30 times a second the worker sends the positions of visible agents as a typed array. The main thread draws them through MapLibre GeoJSON symbol layers, with no DOM element per vehicle. React only gets statistics, four times a second.
+- **Simulation in a Web Worker.** Routing and stepping thousands of agents run off the main thread, so the map stays smooth. About 30 times a second the worker sends the positions of visible agents as a typed array. Close up, the main thread uploads them as instances to a custom WebGL layer (`agentLayer.ts`, one instanced draw call per agent kind, low-poly models in `models.ts`). Zoomed out, they go through MapLibre symbol layers. There are no DOM elements per vehicle, and React only gets statistics, four times a second.
 - **Routing.** Car and bike trips start or end in about 250–400 destination zones per mode. Each zone has a cached shortest-path tree (one Dijkstra, about 4 ms), so a new trip's route is a pointer walk. Pedestrians use A* over short distances.
 - **Transit** positions are a pure function of the clock (timetable interpolation), so time jumps are instant.
 
@@ -123,7 +124,7 @@ OpenFreeMap, Overpass, OVapi and PDOK are free public services, so keep usage re
 - No traffic lights, lanes, turn restrictions, parking or overtaking. Cars, bikes and pedestrians don't interact with each other.
 - Pedestrians are only simulated around a street-level view (zoom 15+).
 - CO₂ is a rough estimate (cars only, 150 g/km).
-- Vehicles and especially people are drawn larger than true scale when zoomed out, so they stay visible.
+- Agents are drawn larger than true scale (1.5× at street level, more when zoomed out) so they stay visible, so they can look crowded in queues.
 - Building heights are approximate where OSM has no height data.
 
 ## Roadmap
