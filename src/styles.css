@@ -1101,6 +1101,19 @@ kbd {
   margin: 0;
 }
 
+.layer-list .lighting input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.layer-list .lighting .range-value {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
 /* Road changes (scenario editing) */
 .right-column > .scenario-panel {
   display: flex;

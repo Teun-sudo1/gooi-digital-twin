@@ -12,7 +12,8 @@ import { buildSceneryModels, SCENERY_VERTEX_FLOATS, SceneryMesh } from './scener
 
 /** Floats per instance: offset (2), rotation (1), scale (1), colour (3). */
 const INSTANCE_FLOATS = 7
-const MESHES = [SceneryMesh.RoundTree, SceneryMesh.OvalTree, SceneryMesh.Spruce, SceneryMesh.Pine, SceneryMesh.Lamp]
+const TREES = [SceneryMesh.RoundTree, SceneryMesh.OvalTree, SceneryMesh.Spruce, SceneryMesh.Pine]
+const MESHES = [...TREES, SceneryMesh.Lamp]
 export const TREE_MIN_ZOOM = 14
 export const LAMP_MIN_ZOOM = 15
 const MAX_TREES = 110_000
@@ -69,6 +70,7 @@ in vec3 v_normal;
 in float v_material;
 in float v_height;
 uniform float u_night;
+uniform float u_opacity;
 out vec4 fragColor;
 void main() {
   int m = int(v_material + 0.5);
@@ -80,7 +82,7 @@ void main() {
     return;
   }
   vec3 base = m == 0 ? v_color * (0.82 + 0.3 * v_height) : m == 1 ? vec3(0.33, 0.26, 0.19) : vec3(0.36, 0.38, 0.4);
-  fragColor = vec4(base * diffuse * mix(1.0, 0.42, u_night), 1.0);
+  fragColor = vec4(base * diffuse * mix(1.0, 0.42, u_night), u_opacity);
 }`
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string) {
@@ -119,6 +121,8 @@ export class SceneryLayer implements CustomLayerInterface {
   private metre: number
   private scenery: Scenery
   private night = 0
+  /** Opacity of the trees (lamps stay solid). */
+  private opacity = 1
   private starts: number[] = []
   private counts: number[] = []
   /** Cells currently uploaded, and whether some were still missing. */
@@ -147,6 +151,11 @@ export class SceneryLayer implements CustomLayerInterface {
     this.map?.triggerRepaint()
   }
 
+  setTreeOpacity(opacity: number) {
+    this.opacity = Math.min(1, Math.max(0.05, opacity))
+    this.map?.triggerRepaint()
+  }
+
   setVisible(trees: boolean, lamps: boolean) {
     this.showTrees = trees
     this.showLamps = lamps
@@ -162,7 +171,7 @@ export class SceneryLayer implements CustomLayerInterface {
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? 'link error')
     this.program = program
-    for (const name of ['u_matrix', 'u_metre', 'u_night']) this.uniforms[name] = gl.getUniformLocation(program, name)
+    for (const name of ['u_matrix', 'u_metre', 'u_night', 'u_opacity']) this.uniforms[name] = gl.getUniformLocation(program, name)
     this.instanceBuffer = gl.createBuffer()
     this.meshes = buildSceneryModels().map((vertices) => {
       const vao = gl.createVertexArray()!
@@ -314,8 +323,32 @@ export class SceneryLayer implements CustomLayerInterface {
     gl.depthMask(true)
     gl.disable(gl.CULL_FACE)
     gl.disable(gl.BLEND)
+    gl.uniform1f(this.uniforms.u_opacity, 1)
+    if (this.opacity > 0.99) {
+      this.draw(gl, MESHES)
+    } else {
+      this.draw(gl, [SceneryMesh.Lamp])
+      // See-through trees: first only their depth, then their colour where they are in front,
+      // so each pixel is blended once and overlapping leaves don't add up.
+      gl.colorMask(false, false, false, false)
+      this.draw(gl, TREES)
+      gl.colorMask(true, true, true, true)
+      gl.depthFunc(gl.EQUAL)
+      gl.depthMask(false)
+      gl.enable(gl.BLEND)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      gl.uniform1f(this.uniforms.u_opacity, this.opacity)
+      this.draw(gl, TREES)
+      gl.disable(gl.BLEND)
+      gl.depthMask(true)
+      gl.depthFunc(gl.LEQUAL)
+    }
+    gl.bindVertexArray(null)
+  }
+
+  private draw(gl: WebGL2RenderingContext, meshes: number[]) {
     const stride = INSTANCE_FLOATS * 4
-    for (const mesh of MESHES) {
+    for (const mesh of meshes) {
       const count = this.counts[mesh] ?? 0
       if (!count) continue
       const { vao, count: vertices } = this.meshes[mesh]
@@ -328,6 +361,5 @@ export class SceneryLayer implements CustomLayerInterface {
       gl.vertexAttribPointer(6, 3, gl.FLOAT, false, stride, base + 16)
       gl.drawArraysInstanced(gl.TRIANGLES, 0, vertices, count)
     }
-    gl.bindVertexArray(null)
   }
 }

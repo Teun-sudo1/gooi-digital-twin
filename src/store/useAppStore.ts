@@ -27,6 +27,8 @@ interface AppState {
   /** What is in effect: the chosen weather, or the live weather. */
   weather: Weather
   season: Season
+  /** 1 solid, lower to see streets and traffic through the trees. */
+  treeOpacity: number
 
   setMap: (map: MapLibreMap | null) => void
   setMapStatus: (status: MapStatus, error?: string) => void
@@ -54,6 +56,7 @@ export const useAppStore = create<AppState>((set) => ({
   liveWeather: null,
   weather: 'dry',
   season: seasonOf(new Date()),
+  treeOpacity: 1,
 
   setMap: (map) => set({ map }),
   setMapStatus: (mapStatus, error) => set({ mapStatus, mapError: error ?? null }),

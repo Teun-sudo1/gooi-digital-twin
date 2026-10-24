@@ -57,6 +57,7 @@ export function useScenery() {
       const { season, weather } = useAppStore.getState()
       layer.setAppearance(season, weather === 'snow')
       layer.setNight(night)
+      layer.setTreeOpacity(useAppStore.getState().treeOpacity)
       const pools = layerVisibility.streetLights && night > 0.05
       map.setLayoutProperty(POOLS, 'visibility', pools ? 'visible' : 'none')
       map.setPaintProperty(POOLS, 'circle-opacity', ['interpolate', ['linear'], ['zoom'], 11, 0.5 * night, 15, 0.42 * night])
@@ -69,6 +70,7 @@ export function useScenery() {
         const scenery = new Scenery(file)
         addPools(map, scenery)
         layer = new SceneryLayer(scenery)
+        // After the vehicles, so they show through see-through trees.
         map.addLayer(layer, map.getLayer('label-water') ? 'label-water' : undefined)
         apply()
         let lastNight = -1
@@ -79,7 +81,8 @@ export function useScenery() {
               s.lightingMode !== prev.lightingMode ||
               s.season !== prev.season ||
               s.weather !== prev.weather ||
-              s.seasonSetting !== prev.seasonSetting
+              s.seasonSetting !== prev.seasonSetting ||
+              s.treeOpacity !== prev.treeOpacity
             )
               apply()
           }),

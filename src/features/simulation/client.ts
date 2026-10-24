@@ -706,7 +706,8 @@ export class SimulationClient {
     // 3D models share the depth buffer with the buildings, drawn after them.
     this.models = new AgentLayer(this.projection!.lng0, this.projection!.lat0)
     this.models.setNight(this.night)
-    map.addLayer(this.models, map.getLayer('label-water') ? 'label-water' : undefined)
+    // Below the trees (scenery-3d), which can be made see-through.
+    map.addLayer(this.models, map.getLayer('scenery-3d') ? 'scenery-3d' : map.getLayer('label-water') ? 'label-water' : undefined)
 
     // A ring on the ground around the followed vehicle.
     map.addSource(FOLLOW_RING, { type: 'geojson', data: empty })

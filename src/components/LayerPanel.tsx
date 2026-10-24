@@ -17,6 +17,7 @@ export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
   const liveWeather = useAppStore((s) => s.liveWeather)
   const weather = useAppStore((s) => s.weather)
   const mapMode = useAppStore((s) => s.mapMode)
+  const treeOpacity = useAppStore((s) => s.treeOpacity)
   const modes: { id: LightingMode; label: string }[] = [
     { id: 'auto', label: 'Sun' },
     { id: 'day', label: 'Day' },
@@ -103,6 +104,23 @@ export function LayerPanel({ embedded = false }: { embedded?: boolean }) {
                 </option>
               ))}
             </select>
+          </li>
+          <li className="lighting">
+            <label htmlFor="tree-opacity">Tree opacity</label>
+            <input
+              id="tree-opacity"
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={Math.round(treeOpacity * 100)}
+              disabled={!visibility.trees}
+              title="Make the trees see-through to show the streets and traffic under them"
+              onChange={(e) => useAppStore.setState({ treeOpacity: Number(e.target.value) / 100 })}
+            />
+            <output htmlFor="tree-opacity" className="range-value">
+              {Math.round(treeOpacity * 100)}%
+            </output>
           </li>
         </ul>
       )}
