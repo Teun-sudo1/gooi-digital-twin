@@ -14,6 +14,8 @@ export const LAYER_GROUPS: LayerGroup[] = [
   { id: 'streetLights', label: 'Street lighting', layerIds: [] },
   // Also switches the lights off in the simulation: junctions then use the right-of-way rules.
   { id: 'trafficLights', label: 'Traffic lights', layerIds: [] },
+  // Also a simulation setting: off, every street has one lane per direction.
+  { id: 'lanes', label: 'Multiple lanes', layerIds: [] },
   {
     id: 'roads',
     label: 'Roads',
@@ -58,6 +60,7 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   trees: true,
   streetLights: true,
   trafficLights: false,
+  lanes: true,
   congestion: false,
 }
 

@@ -63,6 +63,8 @@ export interface Network {
   /** Heading (radians, counter-clockwise from east) when leaving / arriving. */
   edgeStartHeading: Float32Array
   edgeEndHeading: Float32Array
+  /** Car lanes in the edge's direction (1 unless set by lanes.ts). */
+  edgeLanes: Uint8Array
   /** Per-mode travel speed on each edge (m/s); 0 when the mode is not allowed. */
   edgeSpeed: [Float32Array, Float32Array, Float32Array, Float32Array]
 
@@ -168,6 +170,7 @@ export function buildNetwork(file: NetworkFile): Network {
   const edgeFrom = new Int32Array(edgeCount)
   const edgeTo = new Int32Array(edgeCount)
   const edgePriority = new Int8Array(edgeCount)
+  const edgeLanes = new Uint8Array(edgeCount).fill(1)
   const edgeStartHeading = new Float32Array(edgeCount)
   const edgeEndHeading = new Float32Array(edgeCount)
   const edgeSpeed: [Float32Array, Float32Array, Float32Array, Float32Array] = [
@@ -239,6 +242,7 @@ export function buildNetwork(file: NetworkFile): Network {
     edgeTo,
     edgeModes,
     edgePriority,
+    edgeLanes,
     edgeStartHeading,
     edgeEndHeading,
     edgeSpeed,

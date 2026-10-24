@@ -363,7 +363,7 @@ export class BusFleet {
             onBoard: midTrip ? Math.round(4 + ((id * 7919) % 13)) : 0,
             pseudo: {
               id: -1, kind: Kind.Bus, mode: Mode.Car, colour: 0, edges: new Int32Array(1), idx: 0, offset: 0, speed: 0,
-              desired: 1, top: MAX_SPEED, accel: ACCEL, length: BUS_LENGTH, lateral: LATERAL, dest: -1, destIsZone: false,
+              desired: 1, top: MAX_SPEED, accel: ACCEL, length: BUS_LENGTH, lateral: LATERAL, lane: 0, laneShift: 0, laneTimer: 0, wantsLane: -1, dest: -1, destIsZone: false,
               needsRoute: false, departedAt: now, slowFor: 0, braking: false, external: true,
             },
           }
@@ -701,15 +701,20 @@ export class BusFleet {
       let y: number
       let bearing: number
       if (bus.detour) {
-        const p = poseOnEdge(net, bus.detour.edges[bus.detour.idx], Math.max(0, bus.detour.offset - HALF), this.pose)
-        x = p.x + p.dy * LATERAL
-        y = p.y - p.dx * LATERAL
+        const edge = bus.detour.edges[bus.detour.idx]
+        const p = poseOnEdge(net, edge, Math.max(0, bus.detour.offset - HALF), this.pose)
+        // Buses keep to the rightmost lane.
+        const lateral = this.traffic.carLateral(edge, 0)
+        x = p.x + p.dy * lateral
+        y = p.y - p.dx * lateral
         bearing = 90 - (Math.atan2(p.dy, p.dx) * 180) / Math.PI
       } else {
         const { dx, dy } = this.transit.pointAt(bus.line, Math.min(bus.d, bus.line.length), this.point)
         const len = Math.hypot(dx, dy) || 1
-        x = this.point.x + (dy / len) * LATERAL
-        y = this.point.y - (dx / len) * LATERAL
+        const run = this.runAt(this.runs[bus.line.info.index], bus.d)
+        const lateral = run ? this.traffic.carLateral(run.edge, 0) : LATERAL
+        x = this.point.x + (dy / len) * lateral
+        y = this.point.y - (dx / len) * lateral
         bearing = this.point.bearing
       }
       if (view && bus.id !== follow && (x < view.minX - 80 || x > view.maxX + 80 || y < view.minY - 80 || y > view.maxY + 80)) continue

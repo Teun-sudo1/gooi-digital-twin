@@ -9,6 +9,7 @@ timetables are real.
 - `traffic.ts`: cars (five types), bikes and pedestrians; demand, car-following, Dutch right of way, statistics
 - `transit.ts`: bus and train lines on OSM routes with real GTFS stop times and stop names; trains are positioned from the timetable
 - `buses.ts`: buses as vehicles in road traffic (route matching, stops, timetable keeping, diversions, simulated passengers, route diagrams)
+- `lanes.ts`: lanes per direction from `public/data/gooi-lanes.json` (assumed by street type where unmapped); lane choice and overtaking live in `traffic.ts`
 - `signals.ts`: traffic lights at OSM-mapped signals: one controller per junction, phases by direction, reacting to traffic (off by default)
 - `useFollowVehicle.ts`: click a vehicle to follow it with the camera
 - `sim.worker.ts`: runs the models in a Web Worker and streams visible agents as typed arrays

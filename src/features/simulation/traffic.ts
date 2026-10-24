@@ -10,7 +10,8 @@ import {
 } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute, TreeCache, type Route } from './routing'
-import { SignalState, type Signals } from './signals'
+import { LANE_WIDTH, MAX_LANES } from './lanes'
+import { SignalState, turnAngle, type Signals } from './signals'
 
 /*
  * Street traffic: cars (five vehicle types), bicycles and pedestrians on the
@@ -92,6 +93,14 @@ const YIELD_LOOKAHEAD = 40
 const LOOKAHEAD = 80
 /** Distance (m) before a junction from which vehicles merging into the same street take turns. */
 const MERGE_LOOKAHEAD = 50
+/** From this far (m) before a junction, cars get into the lane for their turn (plus as much per lane to cross). */
+const LANE_CHOICE_DISTANCE = 120
+/** Cars only overtake this far (m) from the next junction. */
+const OVERTAKE_CLEARANCE = 70
+/** Seconds between lane-change decisions of one car. */
+const LANE_COOLDOWN = 1.5
+/** How fast (m/s) a lane change is drawn sideways. */
+const LANE_SHIFT_SPEED = 1.4
 /** Vehicles this close (m) to the end of a street before a traffic light approach call its green. */
 const DETECTOR_REACH = 60
 const EQUAL_PATIENCE = 6
@@ -137,6 +146,14 @@ export interface Agent {
   length: number
   /** Metres to the right of the street centreline. */
   lateral: number
+  /** Car lane, 0 the rightmost. */
+  lane: number
+  /** Sideways distance (m) still to cover after a lane change, so it is drawn as a smooth move. */
+  laneShift: number
+  /** Seconds until the next lane change is considered. */
+  laneTimer: number
+  /** The lane a car must get into before the junction and is waiting to merge into, or -1. */
+  wantsLane: number
   /** Final junction of the trip. */
   dest: number
   /** True when `dest` is a destination zone, so a cached path tree can reroute the trip. */
@@ -185,6 +202,33 @@ function fromTheRight(net: Network, edge: number, other: number) {
   while (diff <= -Math.PI) diff += 2 * Math.PI
   while (diff > Math.PI) diff -= 2 * Math.PI
   return diff > 0.5 && diff < 2.6
+}
+
+/** Queue key: cars and bikes queue separately, and cars per lane. */
+const queueKey = (edge: number, lane: number, mode: number) => ((edge * MAX_LANES + lane) << 1) | (mode === Mode.Bike ? 1 : 0)
+
+/** Lanes a car may use at the end of `edge` for its next street: [lowest, highest]. */
+function lanesForTurn(net: Network, edge: number, next: number): [number, number] {
+  const lanes = net.edgeLanes[edge]
+  if (lanes === 1 || next < 0) return [0, lanes - 1]
+  const nextLanes = net.edgeLanes[next]
+  const angle = turnAngle(net.edgeEndHeading[edge], net.edgeStartHeading[next])
+  // The other ways cars can go here, to tell a turn from the road bending.
+  const junction = net.edgeTo[edge]
+  let leftmost = true
+  let rightmost = true
+  let options = 0
+  for (let k = net.outStart[junction]; k < net.outStart[junction + 1]; k++) {
+    const out = net.outEdges[k]
+    if (out === next || !(net.edgeModes[out] & MODE_BIT[Mode.Car]) || net.edgeTo[out] === net.edgeFrom[edge]) continue
+    options++
+    const other = turnAngle(net.edgeEndHeading[edge], net.edgeStartHeading[out])
+    if (other > angle) leftmost = false
+    if (other < angle) rightmost = false
+  }
+  if (options > 0 && rightmost && (angle < -0.35 || nextLanes < lanes)) return [0, Math.min(nextLanes, lanes) - 1 > 0 && angle > -0.35 ? Math.min(nextLanes, lanes) - 1 : 0]
+  if (options > 0 && leftmost && angle > 0.35) return [lanes - 1, lanes - 1]
+  return [0, Math.min(lanes, nextLanes) - 1]
 }
 
 interface Zones {
@@ -637,13 +681,14 @@ export class TrafficModel {
       const route = this.route(mode, a, b, trip.toZone, treeBudget)
       if (!route) continue
       // Don't appear on top of someone already at the start of the route.
-      if (!midTrip && !this.roomAtStart(mode, route.edges[0])) continue
-      this.launch(mode, route, midTrip, trip.toZone)
+      const lane = midTrip ? -1 : this.roomAtStart(mode, route.edges[0])
+      if (!midTrip && lane < 0) continue
+      this.launch(mode, route, midTrip, trip.toZone, lane)
       if (!midTrip) {
         // Count it straight away, so a second car doesn't appear on top of it this step.
-        const key = route.edges[0] * 2 + mode
-        const list = this.occupancy.get(key)
         const agent = this.agents[this.agents.length - 1]
+        const key = queueKey(route.edges[0], agent.lane, mode)
+        const list = this.occupancy.get(key)
         if (list) list.unshift(agent)
         else this.occupancy.set(key, [agent])
       }
@@ -652,9 +697,14 @@ export class TrafficModel {
     return false
   }
 
+  /** A lane with room at the start of an edge (the rightmost free one), or -1. */
   private roomAtStart(mode: Mode, edge: number) {
-    const first = this.occupancy.get(edge * 2 + mode)?.[0]
-    return !first || first.offset - first.length > (mode === Mode.Car ? 6 + MIN_GAP : 2.5)
+    const lanes = mode === Mode.Car ? this.net.edgeLanes[edge] : 1
+    for (let lane = 0; lane < lanes; lane++) {
+      const first = this.occupancy.get(queueKey(edge, lane, mode))?.[0]
+      if (!first || first.offset - first.length > (mode === Mode.Car ? 6 + MIN_GAP : 2.5)) return lane
+    }
+    return -1
   }
 
   /** Removes cars and bikes placed overlapping another (after filling the map at once). */
@@ -662,7 +712,7 @@ export class TrafficModel {
     const byEdge = new Map<number, Agent[]>()
     for (const a of this.agents) {
       if (a.mode === Mode.Foot) continue
-      const key = a.edges[a.idx] * 2 + a.mode
+      const key = queueKey(a.edges[a.idx], a.lane, a.mode)
       const list = byEdge.get(key)
       if (list) list.push(a)
       else byEdge.set(key, [a])
@@ -681,7 +731,7 @@ export class TrafficModel {
     if (drop.size) this.agents = this.agents.filter((a) => !drop.has(a))
   }
 
-  private launch(mode: Mode, route: Route, midTrip: boolean, destIsZone = false) {
+  private launch(mode: Mode, route: Route, midTrip: boolean, destIsZone = false, startLane = -1) {
     const net = this.net
     let idx = 0
     let offset = 0
@@ -728,6 +778,7 @@ export class TrafficModel {
       length = 0.6
     }
     const edge = route.edges[idx]
+    const lane = mode !== Mode.Car ? 0 : startLane >= 0 ? startLane : Math.floor(r() * net.edgeLanes[edge])
     this.agents.push({
       id: this.nextId++,
       kind,
@@ -741,7 +792,11 @@ export class TrafficModel {
       top,
       accel,
       length,
-      lateral: this.lateralFor(mode, edge),
+      lateral: this.lateralFor(mode, edge, lane),
+      lane,
+      laneShift: 0,
+      laneTimer: r() * LANE_COOLDOWN,
+      wantsLane: -1,
       dest: net.edgeTo[route.edges[route.edges.length - 1]],
       destIsZone,
       needsRoute: false,
@@ -760,17 +815,30 @@ export class TrafficModel {
     return Math.min(top, desired * weather * (this.net.edgeSpeed[mode][edge] / reference))
   }
 
-  /** Where across the street an agent travels: Dutch traffic keeps right. */
-  private lateralFor(mode: Mode, edge: number) {
+  /** Where across the street an agent travels: Dutch traffic keeps right, lane 0 the rightmost. */
+  private lateralFor(mode: Mode, edge: number, lane = 0) {
     const net = this.net
     const modes = net.edgeModes[edge]
     const s = net.edgeSeg[edge]
     const flags = net.segFlags[s]
     const twoWayCars = (flags & 1) !== 0 && (flags & 2) !== 0
     const hasCars = (modes & MODE_BIT[Mode.Car]) !== 0 || (flags & 3) !== 0
-    if (mode === Mode.Car) return twoWayCars ? 1.7 : 0
-    if (mode === Mode.Bike) return hasCars ? (twoWayCars ? 3.4 : 2.2) : 0.8
-    return hasCars ? 5.2 : 0.4 + this.random() * 0.9
+    const lanes = net.edgeLanes[edge]
+    // Width of the extra lanes, which pushes bikes and pedestrians outwards.
+    const extra = (lanes - 1) * LANE_WIDTH
+    if (mode === Mode.Car) return this.carLateral(edge, lane)
+    if (mode === Mode.Bike) return hasCars ? (twoWayCars ? 3.4 + extra : 2.2 + extra / 2) : 0.8
+    return hasCars ? 5.2 + extra : 0.4 + this.random() * 0.9
+  }
+
+  /** Metres right of the centreline of a car lane (lanes of a one-way street sit around its middle). */
+  carLateral(edge: number, lane: number) {
+    const net = this.net
+    const flags = net.segFlags[net.edgeSeg[edge]]
+    const twoWay = (flags & 1) !== 0 && (flags & 2) !== 0
+    const lanes = net.edgeLanes[edge]
+    const fromInner = lanes - 1 - Math.min(lane, lanes - 1)
+    return twoWay ? 1.7 + fromInner * LANE_WIDTH : (fromInner - (lanes - 1) / 2) * LANE_WIDTH
   }
 
   private pedestrianTarget() {
@@ -853,9 +921,8 @@ export class TrafficModel {
     for (let k = first; k < last; k++) {
       const other = net.inEdges[k]
       if (other === edge) continue
-      const waiting = this.occupancy.get(other * 2)
-      if (!waiting?.length) continue
-      const car = waiting[waiting.length - 1]
+      const car = this.frontCar(other)
+      if (!car) continue
       if (edgeLength(net, other) - car.offset > CONFLICT_DISTANCE || car.speed < 1.5) continue
       if (net.edgePriority[other] > net.edgePriority[edge] && agent.slowFor < MINOR_PATIENCE) return true
       if (net.edgePriority[other] === net.edgePriority[edge] && fromTheRight(net, edge, other) && agent.slowFor < EQUAL_PATIENCE) {
@@ -865,18 +932,139 @@ export class TrafficModel {
     return false
   }
 
+  /** The car closest to the end of an edge, in any lane. */
+  private frontCar(edge: number): Agent | null {
+    let front: Agent | null = null
+    for (let lane = 0; lane < this.net.edgeLanes[edge]; lane++) {
+      const list = this.occupancy.get(queueKey(edge, lane, Mode.Car))
+      const car = list?.[list.length - 1]
+      if (car && (!front || car.offset > front.offset)) front = car
+    }
+    return front
+  }
+
+  /** The lane a car in `lane` ends up in on `edge` (where there are fewer lanes, the leftmost there is). */
+  private laneOnto(edge: number, lane: number) {
+    return Math.min(lane, this.net.edgeLanes[edge] - 1)
+  }
+
   /** Whether a car fits on the start of an edge (or the traffic there is moving on). */
   private roomAfter(edge: number, a: Agent) {
-    const rear = this.occupancy.get(edge * 2 + Mode.Car)?.[0]
+    const rear = this.occupancy.get(queueKey(edge, this.laneOnto(edge, a.lane), Mode.Car))?.[0]
     return !rear || rear.offset - rear.length >= a.length + MIN_GAP || rear.speed > 4
   }
 
-  /** The first car (or bus) on an edge beyond `offset`, other than `self`. */
-  firstAhead(edge: number, offset: number, self: Agent | null): Agent | null {
-    const list = this.occupancy.get(edge * 2 + Mode.Car)
+  /** The first car (or bus) in a lane of an edge beyond `offset`, other than `self` (buses keep to lane 0). */
+  firstAhead(edge: number, offset: number, self: Agent | null, lane = 0): Agent | null {
+    const list = this.occupancy.get(queueKey(edge, lane, Mode.Car))
     if (!list) return null
     for (const a of list) if (a !== self && a.offset > offset) return a
     return null
+  }
+
+  /**
+   * Lane changes, before cars move: into the lane for the next turn (or out
+   * of a lane that ends), past slower vehicles, and back to the right when
+   * there is room. A car needing a lane it can't get into marks it, and the
+   * car behind there lets it in.
+   */
+  private changeLanes(dt: number) {
+    const net = this.net
+    const occupancy = this.occupancy
+    for (const a of this.agents) {
+      if (a.mode !== Mode.Car) continue
+      if (a.laneShift !== 0) {
+        const step = LANE_SHIFT_SPEED * dt
+        a.laneShift = Math.abs(a.laneShift) <= step ? 0 : a.laneShift - Math.sign(a.laneShift) * step
+      }
+      const edge = a.edges[a.idx]
+      const lanes = net.edgeLanes[edge]
+      if (a.lane >= lanes) a.lane = lanes - 1
+      a.wantsLane = -1
+      if (lanes === 1) continue
+      a.laneTimer -= dt
+      if (a.laneTimer > 0) continue
+      a.laneTimer = LANE_COOLDOWN * (0.6 + 0.8 * this.random())
+      const next = a.idx + 1 < a.edges.length ? a.edges[a.idx + 1] : -1
+      const toEnd = edgeLength(net, edge) - a.offset
+      const [lo, hi] = toEnd < LANE_CHOICE_DISTANCE * lanes ? lanesForTurn(net, edge, next) : [0, lanes - 1]
+      const own = occupancy.get(queueKey(edge, a.lane, Mode.Car))
+      if (!own) continue
+      let target = -1
+      let mandatory = false
+      if (a.lane < lo || a.lane > hi) {
+        target = a.lane < lo ? a.lane + 1 : a.lane - 1
+        mandatory = true
+      } else {
+        const index = own.indexOf(a)
+        const leader = own[index + 1]
+        const cruise = this.cruise(Mode.Car, edge, a.desired, a.top)
+        const gap = leader ? leader.offset - leader.length - a.offset : Infinity
+        if (toEnd > OVERTAKE_CLEARANCE && leader && gap < 50 && leader.speed < cruise - 2 && a.lane + 1 <= hi) {
+          // Overtake on the left past something slower.
+          if (this.gapAhead(edge, a.lane + 1, a) > gap + 15) target = a.lane + 1
+        } else if (a.lane > lo && toEnd > OVERTAKE_CLEARANCE && this.gapAhead(edge, a.lane - 1, a) > 80) {
+          // Keep right when the lane to the right is clear.
+          target = a.lane - 1
+        }
+      }
+      if (target < 0) continue
+      if (!this.canMerge(edge, target, a, mandatory)) {
+        if (mandatory) {
+          a.wantsLane = target
+          // Keep trying every step until in lane.
+          a.laneTimer = 0
+        }
+        continue
+      }
+      own.splice(own.indexOf(a), 1)
+      const key = queueKey(edge, target, Mode.Car)
+      let list = occupancy.get(key)
+      if (!list) occupancy.set(key, (list = []))
+      let at = list.length
+      while (at > 0 && list[at - 1].offset > a.offset) at--
+      list.splice(at, 0, a)
+      const from = a.lateral + a.laneShift
+      a.lane = target
+      a.lateral = this.carLateral(edge, target)
+      a.laneShift = from - a.lateral
+      // Across several lanes for a turn, one after the other; otherwise settle first.
+      a.laneTimer = mandatory ? LANE_COOLDOWN * 0.4 : LANE_COOLDOWN * 2
+    }
+  }
+
+  /** Free road (m) ahead of a car's position in another lane of its edge. */
+  private gapAhead(edge: number, lane: number, a: Agent) {
+    const list = this.occupancy.get(queueKey(edge, lane, Mode.Car))
+    if (!list) return Infinity
+    for (const b of list) if (b.offset > a.offset) return b.offset - b.length - a.offset
+    return Infinity
+  }
+
+  /** Whether there's a safe gap for `a` in another lane of its edge (smaller when it has to get in). */
+  private canMerge(edge: number, lane: number, a: Agent, mandatory: boolean) {
+    const list = this.occupancy.get(queueKey(edge, lane, Mode.Car))
+    if (!list) return true
+    let leader: Agent | null = null
+    let follower: Agent | null = null
+    for (const b of list) {
+      if (b.offset > a.offset) {
+        leader = b
+        break
+      }
+      follower = b
+    }
+    // Room to brake for a slower car ahead, and for a faster one behind to brake for us.
+    const braking = (closing: number) => (closing * closing) / (2 * SAFE_DECEL)
+    if (leader) {
+      const needed = (mandatory ? MIN_GAP : MIN_GAP + a.speed * 0.6) + braking(Math.max(0, a.speed - leader.speed))
+      if (leader.external || leader.offset - leader.length - a.offset < needed) return false
+    }
+    if (follower) {
+      const needed = (mandatory ? MIN_GAP * 0.8 : MIN_GAP + follower.speed * 0.3) + braking(Math.max(0, follower.speed - a.speed))
+      if (a.offset - a.length - follower.offset < needed) return false
+    }
+    return true
   }
 
   private move(dt: number) {
@@ -885,18 +1073,30 @@ export class TrafficModel {
     const measures = this.measures
     const signals = this.signals
     occupancy.clear()
-    // Cars and bikes queue separately (key edge*2 + group); pedestrians pass each other freely.
+    // Cars (per lane) and bikes queue separately; pedestrians pass each other freely.
     for (const a of [...this.agents, ...this.externals]) {
       if (a.mode === Mode.Foot) continue
-      const key = a.edges[a.idx] * 2 + a.mode
+      const edge = a.edges[a.idx]
+      if (a.lane >= net.edgeLanes[edge]) a.lane = net.edgeLanes[edge] - 1
+      const key = queueKey(edge, a.lane, a.mode)
       const list = occupancy.get(key)
       if (list) list.push(a)
       else occupancy.set(key, [a])
     }
     for (const list of occupancy.values()) if (list.length > 1) list.sort((p, q) => p.offset - q.offset)
+    this.changeLanes(dt)
+    // Cars waiting to merge, by the lane they want: the car behind there lets them in.
+    const merging = new Map<number, Agent[]>()
+    for (const a of this.agents) {
+      if (a.wantsLane < 0) continue
+      const key = queueKey(a.edges[a.idx], a.wantsLane, Mode.Car)
+      const list = merging.get(key)
+      if (list) list.push(a)
+      else merging.set(key, [a])
+    }
 
     for (const [key, list] of occupancy) {
-      const edge = key >> 1
+      const edge = Math.floor(key / (MAX_LANES * 2))
       const isCar = (key & 1) === 0
       const length = edgeLength(net, edge)
       for (let i = 0; i < list.length; i++) {
@@ -948,7 +1148,7 @@ export class TrafficModel {
           // Look past short junction pieces for the back of the queue ahead.
           let distance = toEnd
           for (let k = a.idx + 1; k < a.edges.length && distance < LOOKAHEAD; k++) {
-            const ahead = occupancy.get(a.edges[k] * 2 + a.mode)
+            const ahead = occupancy.get(queueKey(a.edges[k], this.laneOnto(a.edges[k], a.lane), a.mode))
             if (ahead?.length) {
               gap = distance + ahead[0].offset - ahead[0].length
               leaderSpeed = ahead[0].speed
@@ -964,15 +1164,27 @@ export class TrafficModel {
           for (let k = net.inStart[junction]; k < net.inStart[junction + 1]; k++) {
             const other = net.inEdges[k]
             if (other === edge) continue
-            const waiting = occupancy.get(other * 2 + a.mode)
-            const c = waiting?.[waiting.length - 1]
+            const c = isCar ? this.frontCar(other) : (occupancy.get(queueKey(other, 0, a.mode))?.at(-1) ?? null)
             if (!c || c.external || c.idx + 1 >= c.edges.length || c.edges[c.idx + 1] !== next) continue
+            // Only someone heading for the same lane.
+            if (isCar && this.laneOnto(next, c.lane) !== this.laneOnto(next, a.lane)) continue
             // Someone waiting at a traffic light isn't merging.
             if (c.speed < 1 && signals && signals.approachFor(other) >= 0) continue
             const theirs = edgeLength(net, other) - c.offset
             const merge = toEnd - theirs - c.length
             if ((theirs < toEnd || (theirs === toEnd && c.id < a.id)) && merge < gap) {
               gap = merge
+              leaderSpeed = c.speed
+            }
+          }
+        }
+        // Let in a car from the next lane that has to get into this one.
+        const wanting = isCar ? merging.get(key) : undefined
+        if (wanting) {
+          for (const c of wanting) {
+            const room = c.offset - c.length - a.offset
+            if (c.offset > a.offset && room < 30 && room < gap) {
+              gap = Math.max(room, MIN_GAP)
               leaderSpeed = c.speed
             }
           }
@@ -1032,7 +1244,8 @@ export class TrafficModel {
           break
         }
         if (a.mode !== Mode.Foot) {
-          const key = a.edges[a.idx] * 2 + a.mode
+          const lane = a.mode === Mode.Car ? this.laneOnto(a.edges[a.idx], a.lane) : 0
+          const key = queueKey(a.edges[a.idx], lane, a.mode)
           const ahead = entered.get(key) ?? this.occupancy.get(key)?.[0]
           const room = ahead && ahead !== a && ahead.edges[ahead.idx] === a.edges[a.idx] ? ahead.offset - ahead.length - (a.mode === Mode.Car ? MIN_GAP : 0.8) : Infinity
           if (a.offset > room) {
@@ -1046,9 +1259,11 @@ export class TrafficModel {
             a.offset = room
             a.speed = Math.min(a.speed, ahead!.speed)
           }
+          a.lane = lane
           entered.set(key, a)
         }
-        a.lateral = this.lateralFor(a.mode, a.edges[a.idx])
+        a.lateral = this.lateralFor(a.mode, a.edges[a.idx], a.lane)
+        a.laneShift = 0
         if (a.mode === Mode.Car) {
           const s = net.edgeSeg[a.edges[a.idx]]
           if (s < measures.flow.length) measures.flow[s]++
@@ -1094,9 +1309,10 @@ export class TrafficModel {
     for (const a of this.agents) {
       if (n >= max) break
       poseOnEdge(this.net, a.edges[a.idx], a.offset, p)
-      // Shift to the right of the direction of travel.
-      const x = p.x + p.dy * a.lateral
-      const y = p.y - p.dx * a.lateral
+      // Shift to the right of the direction of travel (and still sliding across after a lane change).
+      const lateral = a.lateral + a.laneShift
+      const x = p.x + p.dy * lateral
+      const y = p.y - p.dx * lateral
       const id = a.id % ROAD_ID_LIMIT
       if (view && id !== follow && (x < view.minX - margin || x > view.maxX + margin || y < view.minY - margin || y > view.maxY + margin)) continue
       const o = n * AGENT_STRIDE

@@ -1,4 +1,5 @@
 import { Mode } from '../../types/simulation'
+import { LANE_WIDTH } from './lanes'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 
 /*
@@ -271,11 +272,13 @@ export function buildSignalPlan(net: Network, points: [number, number][]): Signa
       plan.approachOf[e] = approach
       plan.approaches.push({ edge: e, controller, axis, stopBack })
       poseOnEdge(net, e, Math.max(0, length - stopBack), pose)
+      // Past the outer lane on multi-lane approaches.
+      const oneWay = !hasReverse(net, e)
+      const kerb = KERB + (net.edgeLanes[e] - 1) * LANE_WIDTH * (oneWay ? 0.5 : 1)
       const bearing = (((270 - (Math.atan2(pose.dy, pose.dx) * 180) / Math.PI) % 360) + 360) % 360
-      plan.heads.push({ x: pose.x + pose.dy * KERB, y: pose.y - pose.dx * KERB, bearing, approach, left: false })
+      plan.heads.push({ x: pose.x + pose.dy * kerb, y: pose.y - pose.dx * kerb, bearing, approach, left: false })
       if (left[axis] >= 0) {
         // A second head for the left-turn phase, on the far side of the lane.
-        const oneWay = !hasReverse(net, e)
         const side = oneWay ? KERB - 1 : 0.8
         plan.heads.push({ x: pose.x - pose.dy * side, y: pose.y + pose.dx * side, bearing, approach, left: true })
       }

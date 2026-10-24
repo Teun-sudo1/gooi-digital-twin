@@ -24,6 +24,7 @@ import {
 } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, toLngLat, type Network } from './network'
+import { applyLanes, type LanesFile } from './lanes'
 import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
 import { BUS_ID_BASE, TRAIN_ID_BASE, TransitModel } from './transit'
@@ -65,6 +66,8 @@ let main: Run | null = null
 /** The original network, running alongside while a scenario is active. */
 let baseline: Run | null = null
 let transit: TransitModel | null = null
+let lanesFile: LanesFile | null = null
+let lanesOn = true
 let playing = true
 let speed = 5
 let viewport: Viewport | null = null
@@ -264,17 +267,22 @@ function compare(): Comparison | null {
 
 async function init(message: Extract<ToWorker, { type: 'init' }>) {
   try {
-    const [file, transitFile, demand, signalsFile] = await Promise.all([
+    const [file, transitFile, demand, signalsFile, lanes] = await Promise.all([
       fetchJson<NetworkFile>(message.networkUrl),
       fetchJson<TransitFile>(message.transitUrl),
       // Without neighbourhood figures, trips are spread evenly.
       fetchJson<DemandFile>(message.demandUrl).catch(() => null),
       // Without mapped signals, every junction uses the right-of-way rules.
       fetchJson<SignalsFile>(message.signalsUrl).catch(() => null),
+      // Without lane data, lanes are assumed from the street type.
+      fetchJson<LanesFile>(message.lanesUrl).catch(() => null),
     ])
+    lanesFile = lanes
+    lanesOn = message.lanes
     networkFile = file
     scenario = buildScenarioNetwork(file, [])
     originalNet = scenario.net
+    applyLanes(scenario.net, lanesFile, lanesOn)
     transit = new TransitModel(transitFile)
     const traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now(), demand })
     traffic.viewport = viewport
@@ -318,6 +326,7 @@ function applyScenario(list: Intervention[]) {
   const next = buildScenarioNetwork(networkFile, interventions)
   // Cycle paths are appended in order: if one was removed, later path edges changed id.
   const pathsKept = previous.every((id, i) => next.pathIds[i] === id)
+  applyLanes(next.net, lanesFile, lanesOn)
   scenario = next
   // Counts run for the whole scenario and restart when the original network is restored.
   main.traffic.setNetwork(next.net, pathsKept ? Infinity : next.baseEdges, interventions.length === 0)
@@ -376,6 +385,11 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'signals':
       if (main) for (const run of runs()) if (run.traffic.signals) run.traffic.signals.enabled = message.enabled === true
+      break
+    case 'lanes':
+      lanesOn = message.enabled === true
+      if (scenario) applyLanes(scenario.net, lanesFile, lanesOn)
+      if (originalNet && originalNet !== scenario?.net) applyLanes(originalNet, lanesFile, lanesOn)
       break
     case 'stop':
       board = message.line === null || !Number.isInteger(message.line) || !Number.isInteger(message.stop) ? null : { line: message.line, stop: message.stop }
