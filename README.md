@@ -21,6 +21,7 @@ Everything runs in the browser as a static site. There is no backend.
 ### Map
 
 - 3D map of the whole Gooi region, with extruded buildings from OpenStreetMap
+- **A short guided tour** on the first visit (seven steps, each pointing at the part of the screen it's about); the ? button under the camera controls starts it again
 - **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date (or the chosen season). Headlights come on after dusk. The layer panel can also force Day or Night.
 - **Map modes**, as in map apps: *Explore* (the plain map), *Driving* (busy streets coloured by congestion), *Transit* (bus and train routes and stops) and *Satellite* (aerial photos). They sit at the top of the map panel; the individual layer switches still work underneath.
 - **Aerial photos:** the *Satellite* mode shows the latest national aerial photography (PDOK Luchtfoto). Roads, labels and the simulation stay on top, and the photos dim at night.

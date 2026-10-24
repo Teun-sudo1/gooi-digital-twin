@@ -15,6 +15,8 @@ interface AppState {
   layerVisibility: LayerVisibility
   layerPanelOpen: boolean
   shortcutsOpen: boolean
+  /** The guided tour (opens by itself on a first visit). */
+  tourOpen: boolean
   /** Follow the simulated sun, or force day or night. */
   lightingMode: LightingMode
   /** Drawn map or aerial photos. */
@@ -48,6 +50,7 @@ export const useAppStore = create<AppState>((set) => ({
   // Start collapsed unless there is room for it beside the road-changes panel.
   layerPanelOpen: typeof window === 'undefined' || (window.innerWidth > 640 && window.innerHeight > 1100),
   shortcutsOpen: false,
+  tourOpen: false,
   lightingMode: 'auto',
   basemap: 'map',
   mapMode: 'explore',

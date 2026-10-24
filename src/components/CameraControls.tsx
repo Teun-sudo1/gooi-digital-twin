@@ -130,6 +130,12 @@ export function CameraControls() {
           <path d="M4 6.5h.01M6.5 6.5h.01M9 6.5h.01M11.5 6.5h.01M5 9.5h6" />
         </svg>
       </button>
+      <button onClick={() => useAppStore.setState({ tourOpen: true, shortcutsOpen: false })} aria-label="Take the tour" title="Take the tour">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5" />
+          <path d="M6.2 6.3a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.4M8 11.6h.01" />
+        </svg>
+      </button>
     </div>
   )
 }

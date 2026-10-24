@@ -11,6 +11,7 @@ import { SimulationBar } from './components/SimulationBar'
 import { SimulationDashboard } from './components/SimulationDashboard'
 import { StatusOverlay } from './components/StatusOverlay'
 import { TopBar } from './components/TopBar'
+import { Tour } from './components/Tour'
 import { WeatherOverlay } from './components/WeatherOverlay'
 import { useEnvironment } from './features/environment/useEnvironment'
 import { MapView } from './features/map/MapView'
@@ -55,6 +56,7 @@ export default function App() {
       {mobile ? <MobileDock /> : <SimulationBar />}
       <StatusOverlay />
       <LightingController />
+      <Tour />
     </div>
   )
 }
