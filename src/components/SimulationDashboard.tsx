@@ -238,7 +238,6 @@ export function SimulationDashboard() {
             {timetableDay
               ? `Buses and trains run to the real timetable of ${timetableDay} (${formatCount(scheduledTrips)} trips, OVapi/NDOV open data). Buses drive through the simulated traffic, so their delays are simulated too. `
               : 'Bus and train frequencies are assumed. '}
-            Traffic lights stand at the signalised junctions mapped in OpenStreetMap; their timings are assumed. 
             Car, bike and pedestrian demand and driving behaviour are assumed. CO₂ assumes {CO2_KG_PER_KM * 1000} g/km
             per car. Building heights are approximate.
           </p>

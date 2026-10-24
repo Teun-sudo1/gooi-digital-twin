@@ -2,7 +2,7 @@
 /*
  * Builds the data files for the Gooi region traffic simulation from OpenStreetMap:
  *
- *   public/data/gooi-network.json  multimodal street network (car, bike, foot) with signalised junctions
+ *   public/data/gooi-network.json  multimodal street network (car, bike, foot)
  *   public/data/gooi-transit.json  bus and train lines with their stops
  *
  *   node scripts/fetch-osm.mjs            # use cached Overpass responses if present
@@ -19,10 +19,6 @@ import { BBOX, carSpeed, KX, KY, LAT0, LNG0, NETWORK_QUERY, OUT, overpass, polyl
 // Transit geometry is kept a little beyond the street network, so trains and
 // buses visibly arrive from and leave towards the rest of the country.
 const TRANSIT_BBOX = [52.17, 5.08, 52.35, 5.36]
-
-const SIGNALS_QUERY = `[out:json][timeout:120];
-node["highway"="traffic_signals"](${BBOX.join(',')});
-out;`
 
 const TRANSIT_QUERY = `[out:json][timeout:180];
 relation["type"="route"]["route"~"^(bus|train)$"](${BBOX.join(',')});
@@ -335,64 +331,6 @@ function buildNetwork(raw) {
   }
 }
 
-/**
- * Traffic signals mapped in OSM sit on stop lines or on the junction itself.
- * Each is snapped to the nearest car junction (three or more car streets)
- * within 35 m; junctions within 40 m of each other (the corners of one big
- * crossing) share a controller. Pedestrian crossing lights away from
- * junctions are left out. Returns lists of node indices, one per controller.
- */
-function buildSignals(raw, network) {
-  const { nodes, segments } = network
-  const count = nodes.length / 2
-  const degree = new Uint16Array(count)
-  segments.from.forEach((from, i) => {
-    if (segments.flags[i] & (CAR_FWD | CAR_BWD)) {
-      degree[from]++
-      degree[segments.to[i]]++
-    }
-  })
-  const junctions = []
-  for (let i = 0; i < count; i++) if (degree[i] >= 3) junctions.push(i)
-  const at = (i) => [nodes[2 * i] / 10, nodes[2 * i + 1] / 10]
-
-  const signalled = new Set()
-  for (const e of raw.elements) {
-    if (e.type !== 'node') continue
-    const [x, y] = project(e.lon, e.lat)
-    let best = -1
-    let bestD = 35
-    for (const j of junctions) {
-      const [jx, jy] = at(j)
-      const d = Math.hypot(jx - x, jy - y)
-      if (d < bestD) {
-        bestD = d
-        best = j
-      }
-    }
-    if (best >= 0) signalled.add(best)
-  }
-
-  // Group junctions of one crossing (union–find).
-  const list = [...signalled]
-  const parent = list.map((_, i) => i)
-  const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])))
-  for (let a = 0; a < list.length; a++) {
-    for (let b = a + 1; b < list.length; b++) {
-      const [ax, ay] = at(list[a])
-      const [bx, by] = at(list[b])
-      if (Math.hypot(ax - bx, ay - by) < 40) parent[find(a)] = find(b)
-    }
-  }
-  const groups = new Map()
-  list.forEach((node, i) => {
-    const root = find(i)
-    if (!groups.has(root)) groups.set(root, [])
-    groups.get(root).push(node)
-  })
-  return [...groups.values()].map((g) => g.sort((a, b) => a - b))
-}
-
 // ---------------------------------------------------------------------------
 // Public transport
 
@@ -529,8 +467,6 @@ function parseInterval(value) {
 async function main() {
   const refresh = process.argv.includes('--refresh')
   const network = buildNetwork(await overpass('network', NETWORK_QUERY, refresh))
-  network.signals = buildSignals(await overpass('signals', SIGNALS_QUERY, refresh), network)
-  console.log(`signals: ${network.signals.length} signalised junctions`)
   const transit = buildTransit(await overpass('transit', TRANSIT_QUERY, refresh))
   await mkdir(OUT, { recursive: true })
   await writeFile(resolve(OUT, 'gooi-network.json'), JSON.stringify(network))

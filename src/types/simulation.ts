@@ -23,7 +23,6 @@ export const Kind = {
   Pedestrian: 6,
   Bus: 7,
   TrainCar: 8,
-  TrafficLight: 9,
 } as const
 export type Kind = (typeof Kind)[keyof typeof Kind]
 
@@ -75,8 +74,6 @@ export interface NetworkFile {
     /** Interior points per segment, delta-encoded from the from-node. */
     geom: number[][]
   }
-  /** Signalised junctions from OSM: node indices per traffic-light controller. */
-  signals?: number[][]
 }
 
 export interface TransitLineRecord {
@@ -242,7 +239,6 @@ export type FollowInfo =
       remainingKm: number
       tripMinutes: number
       delayed: boolean
-      waitingAtLight: boolean
     }
   | {
       type: 'bus' | 'train'
@@ -278,13 +274,6 @@ export interface RouteDiagram {
   back: RouteSide | null
 }
 
-/** A traffic light head, in local metres, facing `bearing`. */
-export interface SignalHead {
-  x: number
-  y: number
-  bearing: number
-}
-
 /** One side of a before/after comparison, measured since the last road change. */
 export interface ComparisonSide {
   journeyMinutes: number | null
@@ -313,9 +302,9 @@ export interface Comparison {
 }
 
 export type FromWorker =
-  | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null; signals: SignalHead[] }
+  | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null }
   | { type: 'error'; message: string }
-  | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number; signals: Uint8Array }
+  | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number }
   | { type: 'follow'; id: number; info: FollowInfo | null }
   | { type: 'comparison'; comparison: Comparison | null }
   | { type: 'stats'; stats: SimulationStats }

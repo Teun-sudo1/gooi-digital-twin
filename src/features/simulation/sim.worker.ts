@@ -21,7 +21,6 @@ import {
 } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, toLngLat, type Network } from './network'
-import { Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
 import { BUS_ID_BASE, TRAIN_ID_BASE, TransitModel } from './transit'
 
@@ -57,7 +56,6 @@ let main: Run | null = null
 /** The original network, running alongside while a scenario is active. */
 let baseline: Run | null = null
 let transit: TransitModel | null = null
-let signals: Signals | null = null
 let playing = true
 let speed = 5
 let viewport: Viewport | null = null
@@ -89,7 +87,7 @@ function tick() {
   const started = performance.now()
   const realDt = Math.min((started - lastTick) / 1000, 0.25)
   lastTick = started
-  if (main && transit && signals) {
+  if (main && transit) {
     const { traffic, fleet } = main
     if (pendingClock !== null) {
       for (const run of runs()) {
@@ -118,12 +116,10 @@ function tick() {
       transitCount = fleet.writeFrame(transitBuffer, transitCount, viewport, followed)
       const agents = agentBuffer.slice(0, agentCount * AGENT_STRIDE)
       const transitFrame = transitBuffer.slice(0, transitCount * AGENT_STRIDE)
-      const states = new Uint8Array(signals.approaches.length)
-      signals.writeStates(traffic.clock, states)
       awaitingAck = true
       post(
-        { type: 'frame', agents, agentCount, transit: transitFrame, transitCount, signals: states },
-        [agents.buffer, transitFrame.buffer, states.buffer],
+        { type: 'frame', agents, agentCount, transit: transitFrame, transitCount },
+        [agents.buffer, transitFrame.buffer],
       )
     }
     if (started - lastStats > STATS_INTERVAL) {
@@ -210,10 +206,8 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
     networkFile = file
     scenario = buildScenarioNetwork(file, [])
     originalNet = scenario.net
-    signals = new Signals(scenario.net)
     transit = new TransitModel(transitFile)
     const traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now() })
-    traffic.signals = signals
     traffic.viewport = viewport
     const fleet = new BusFleet(transit, matchLines(transit, scenario.net), traffic)
     main = { traffic, fleet }
@@ -226,7 +220,6 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
       projection: file.meta.projection,
       lines: transit.infos,
       timetableDate: transit.timetableDate,
-      signals: signals.approaches.map(({ x, y, bearing }) => ({ x, y, bearing })),
     })
     lastTick = performance.now()
     tick()

@@ -27,7 +27,7 @@ function LineBadge({ line }: { line: TransitLineInfo }) {
 
 function Details({ info, lines }: { info: FollowInfo; lines: TransitLineInfo[] }) {
   if (info.type === 'road') {
-    const status = info.waitingAtLight ? 'Waiting at a red light' : info.delayed ? 'Held up in traffic' : null
+    const status = info.delayed ? 'Held up in traffic' : null
     return (
       <>
         <div className="follow-title">

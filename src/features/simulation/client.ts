@@ -7,7 +7,6 @@ import {
   Kind,
   type FromWorker,
   type Intervention,
-  type SignalHead,
   type JunctionInfo,
   type Projection,
   type SegmentInfo,
@@ -24,8 +23,6 @@ const ROUTES = 'transit-routes'
 const STOPS = 'transit-stops'
 const BUS_LABELS = 'sim-bus-labels'
 const FOLLOW_RING = 'sim-follow-ring'
-/** Traffic lights are drawn within this distance (m) of the view centre. */
-const SIGNAL_REACH = 2500
 const FONT = ['Noto Sans Regular']
 /** Simulated seconds between trend-chart samples. */
 const HISTORY_INTERVAL = 300
@@ -99,8 +96,6 @@ export class SimulationClient {
   private models: AgentLayer | null = null
   private instances = new Float32Array(0)
   private scenario: Intervention[] = []
-  private signalHeads: SignalHead[] = []
-  private signalStates: Uint8Array = new Uint8Array(0)
   /** Latest frame, kept for picking vehicles and following one. */
   private lastAgents: Float32Array = new Float32Array(0)
   private lastAgentCount = 0
@@ -263,7 +258,6 @@ export class SimulationClient {
       case 'ready':
         this.projection = message.projection
         this.lines = message.lines
-        this.signalHeads = message.signals
         registerIcons(this.map, message.lines)
         this.addLayers()
         this.setNight(this.night)
@@ -283,7 +277,6 @@ export class SimulationClient {
         this.picks.delete(message.id)
         break
       case 'frame':
-        this.signalStates = message.signals
         this.lastAgents = message.agents
         this.lastAgentCount = message.agentCount
         this.lastTransit = message.transit
@@ -431,17 +424,12 @@ export class SimulationClient {
     if (!layer) return
     const { traffic, transit: showTransit } = useAppStore.getState().layerVisibility
     const projection = this.projection!
-    const kinds = 10
+    const kinds = 9
     const counts = new Array<number>(kinds).fill(0)
     const sources: [Float32Array, number][] = []
     if (traffic) sources.push([agents, agentCount])
     if (showTransit) sources.push([transit, transitCount])
     for (const [data, count] of sources) for (let i = 0; i < count; i++) counts[data[i * AGENT_STRIDE + 3]]++
-    // Traffic lights near the view centre.
-    const centre = this.map.getCenter()
-    const [cx, cy] = fromLngLat(projection, centre.lng, centre.lat)
-    const lights = this.signalHeads.map((_, i) => i).filter((i) => Math.hypot(this.signalHeads[i].x - cx, this.signalHeads[i].y - cy) < SIGNAL_REACH)
-    counts[Kind.TrafficLight] = lights.length
     const starts = new Array<number>(kinds).fill(0)
     for (let k = 1; k < kinds; k++) starts[k] = starts[k - 1] + counts[k - 1]
     const total = starts[kinds - 1] + counts[kinds - 1]
@@ -485,17 +473,6 @@ export class SimulationClient {
         out[w + 8] = secondary[2]
         out[w + 9] = (kind <= Kind.Truck || kind === Kind.Bus) && flags & 1 ? InstanceFlag.Braking : 0
       }
-    }
-    for (const i of lights) {
-      const head = this.signalHeads[i]
-      const [lng, lat] = toLngLat(projection, head.x, head.y)
-      const [dx, dy] = layer.offset(lng, lat)
-      const w = fill[Kind.TrafficLight]++ * INSTANCE_FLOATS
-      out.fill(0, w, w + INSTANCE_FLOATS)
-      out[w] = dx
-      out[w + 1] = dy
-      out[w + 2] = (head.bearing * Math.PI) / 180
-      out[w + 9] = this.signalStates[i] ?? 0
     }
     layer.setInstances(out.subarray(0, total * INSTANCE_FLOATS), starts, counts)
   }

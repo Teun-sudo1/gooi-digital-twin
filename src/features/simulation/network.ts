@@ -73,10 +73,6 @@ export interface Network {
   inEdges: Int32Array
 
   maxSpeed: [number, number, number, number]
-
-  /** Traffic-light controller per node (index into `signals`), or -1. */
-  nodeSignal: Int32Array
-  signals: number[][]
 }
 
 export function toLngLat(projection: Projection, x: number, y: number): [number, number] {
@@ -217,12 +213,6 @@ export function buildNetwork(file: NetworkFile): Network {
   const [outStart, outEdges] = csr(edgeFrom)
   const [inStart, inEdges] = csr(edgeTo)
 
-  const signals = (file.signals ?? []).filter((nodes) => nodes.every((i) => Number.isInteger(i) && i >= 0 && i < nodeCount))
-  const nodeSignal = new Int32Array(nodeCount).fill(-1)
-  signals.forEach((nodes, k) => {
-    for (const i of nodes) nodeSignal[i] = k
-  })
-
   return {
     projection,
     bbox: file.meta.bbox,
@@ -257,8 +247,6 @@ export function buildNetwork(file: NetworkFile): Network {
     inStart,
     inEdges,
     maxSpeed,
-    nodeSignal,
-    signals,
   }
 }
 

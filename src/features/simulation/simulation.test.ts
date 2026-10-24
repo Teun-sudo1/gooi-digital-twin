@@ -7,7 +7,6 @@ import { buildNetwork, edgeLength, toLngLat, type Network } from './network'
 import { buildScenarioNetwork } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines } from './buses'
 import { findRoute, PathTree } from './routing'
-import { Signals, SignalState } from './signals'
 import { ROAD_ID_LIMIT, TrafficModel } from './traffic'
 import { tinyNetwork } from './testNetwork'
 import { TransitModel } from './transit'
@@ -174,7 +173,6 @@ describe('public transport', () => {
 
   it('drives buses through traffic, close to the timetable', () => {
     const traffic = new TrafficModel(scenario.net, { density: 1500, startClock: 10 * 3600, seed: 8 })
-    traffic.signals = new Signals(scenario.net)
     traffic.populate()
     const fleet = new BusFleet(transit, runs, traffic)
     fleet.reset(traffic.clock)
@@ -203,7 +201,6 @@ describe('public transport', () => {
 
   it('diverts buses around a closed street and rejoins the route', () => {
     const traffic = new TrafficModel(scenario.net, { density: 300, startClock: 11 * 3600, seed: 2 })
-    traffic.signals = new Signals(scenario.net)
     const fleet = new BusFleet(transit, runs, traffic)
     fleet.reset(traffic.clock)
     // A bus with a matched street well ahead of it.
@@ -230,41 +227,6 @@ describe('public transport', () => {
     expect(diverted).toBe(true)
     const after = fleet.buses.find((b) => b.id === target!.id)
     if (after) expect(after.d).toBeGreaterThan(target!.d)
-  })
-})
-
-describe('traffic lights', () => {
-  const net = buildNetwork(networkFile)
-  const signals = new Signals(net)
-
-  it('control the mapped signalised junctions in two phases', () => {
-    expect(net.signals.length).toBeGreaterThan(50)
-    expect(signals.approaches.length).toBeGreaterThan(100)
-    const byController = new Map<number, number[]>()
-    signals.approaches.forEach((a, i) => byController.set(a.controller, [...(byController.get(a.controller) ?? []), i]))
-    for (const approaches of byController.values()) {
-      const seen = new Set<number>()
-      for (let t = 0; t < 120; t++) {
-        const greenPhases = new Set(approaches.filter((i) => signals.state(i, t) === SignalState.Green).map((i) => signals.approaches[i].phase))
-        // Crossing directions are never green together.
-        expect(greenPhases.size).toBeLessThanOrEqual(1)
-        for (const i of approaches) seen.add(signals.state(i, t))
-      }
-      expect(seen).toEqual(new Set([SignalState.Green, SignalState.Amber, SignalState.Red]))
-    }
-  })
-
-  it('make cars wait at red', () => {
-    const sim = new TrafficModel(net, { density: 2500, startClock: 8 * 3600, seed: 6 })
-    sim.signals = signals
-    sim.populate()
-    for (let i = 0; i < 240; i++) sim.step(0.5)
-    const waiting = sim.agents.filter((a) => {
-      if (a.mode !== Mode.Car || a.speed > 0.5 || a.idx + 1 >= a.edges.length) return false
-      const edge = a.edges[a.idx]
-      return signals.stateForEdge(edge, sim.clock) === SignalState.Red && edgeLength(net, edge) - a.offset < 60
-    })
-    expect(waiting.length).toBeGreaterThan(5)
   })
 })
 

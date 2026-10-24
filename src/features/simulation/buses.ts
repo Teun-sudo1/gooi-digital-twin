@@ -1,7 +1,6 @@
 import { AGENT_STRIDE, AgentFlag, Kind, Mode, type FollowInfo, type RouteDiagram, type RouteSide } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute } from './routing'
-import { SignalState } from './signals'
 import { profileAt, type Agent, type TrafficModel } from './traffic'
 import { BUS_ID_BASE, type Line, type TransitModel, type Trip } from './transit'
 
@@ -11,7 +10,7 @@ import { BUS_ID_BASE, type Line, type TransitModel, type Trip } from './transit'
  * keep to the timetable: it never leaves a stop early, and between stops it
  * aims for the scheduled arrival without exceeding the speed limit. Where the
  * route runs along a street of the simulated network, the bus queues behind
- * cars, waits at red lights, and cars queue behind it. Where a street on the
+ * cars, and cars queue behind it. Where a street on the
  * route is closed to buses, it takes the fastest diversion and rejoins the
  * route after the closure, skipping the stops in between. Delays build up
  * from all of that; they are simulated, not live.
@@ -430,7 +429,6 @@ export class BusFleet {
 
     const traffic = this.traffic
     const net = traffic.net
-    const signals = traffic.signals
     const externals: Agent[] = []
     const survivors: Bus[] = []
     for (const bus of this.buses) {
@@ -438,7 +436,7 @@ export class BusFleet {
       let target: number
 
       if (bus.detour) {
-        target = this.detourTarget(bus, net, clock)
+        target = this.detourTarget(bus, net)
       } else if (clock < bus.dwellUntil) {
         target = 0
         bus.v = 0
@@ -458,12 +456,7 @@ export class BusFleet {
         if (bus.plan) target = Math.min(target, Math.sqrt(4 + 2 * DECEL * Math.max(0, bus.plan.at - bus.d - HALF)))
         if (run) {
           const front = this.offsetIn(run, bus.d + HALF)
-          // Red light at the end of this street.
-          const light = signals ? signals.stateForEdge(run.edge, clock) : -1
           const toEnd = edgeLength(net, run.edge) - front
-          if (light !== -1 && light !== SignalState.Green && run.d1 < bus.end - 5) {
-            if (light === SignalState.Red || toEnd - 2 > (bus.v * bus.v) / 8) target = Math.min(target, Math.sqrt(2 * DECEL * Math.max(0, toEnd - 2)))
-          }
           // Queue behind traffic ahead.
           const leader = traffic.firstAhead(run.edge, front, bus.pseudo)
           let gap = leader ? leader.offset - leader.length - front : Infinity
@@ -572,7 +565,7 @@ export class BusFleet {
     return run ? { edge: run.edge, offset: this.offsetIn(run, bus.d + HALF) } : null
   }
 
-  private detourTarget(bus: Bus, net: Network, clock: number) {
+  private detourTarget(bus: Bus, net: Network) {
     const detour = bus.detour!
     const edge = detour.edges[detour.idx]
     const toEnd = edgeLength(net, edge) - detour.offset
@@ -580,8 +573,6 @@ export class BusFleet {
     if (detour.idx + 1 < detour.edges.length) {
       // Turns on the diversion: slow for them.
       target = Math.min(target, Math.sqrt(36 + 2 * DECEL * Math.max(0, toEnd - 1)))
-      const light = this.traffic.signals?.stateForEdge(edge, clock) ?? -1
-      if (light === SignalState.Red) target = Math.min(target, Math.sqrt(2 * DECEL * Math.max(0, toEnd - 2)))
     }
     const leader = this.traffic.firstAhead(edge, detour.offset, bus.pseudo)
     if (leader) target = Math.min(target, Math.max(0, (leader.offset - leader.length - detour.offset - 3) / 1.5))
