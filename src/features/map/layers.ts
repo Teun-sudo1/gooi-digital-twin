@@ -15,7 +15,7 @@ export const LAYER_GROUPS: LayerGroup[] = [
   // Also switches the lights off in the simulation: junctions then use the right-of-way rules.
   { id: 'trafficLights', label: 'Traffic lights', layerIds: [] },
   // Also a simulation setting: off, every street has one lane per direction.
-  { id: 'lanes', label: 'Multiple lanes', layerIds: [] },
+  { id: 'lanes', label: 'Multiple lanes', layerIds: ['lane-surface', 'lane-lines', 'lane-edges'] },
   {
     id: 'roads',
     label: 'Roads',
@@ -86,7 +86,7 @@ export function applyVisibility(map: MapLibreMap, visibility: LayerVisibility, b
 const roadOpacity = new Map<string, unknown>()
 
 export function applyBasemapStyle(map: MapLibreMap, basemap: Basemap) {
-  for (const id of LAYER_GROUPS.find((g) => g.id === 'roads')!.layerIds) {
+  for (const id of [...LAYER_GROUPS.find((g) => g.id === 'roads')!.layerIds, 'lane-surface']) {
     if (!map.getLayer(id)) continue
     if (!roadOpacity.has(id)) roadOpacity.set(id, map.getPaintProperty(id, 'line-opacity') ?? 1)
     const original = roadOpacity.get(id) as number

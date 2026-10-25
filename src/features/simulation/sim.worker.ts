@@ -24,7 +24,7 @@ import {
 } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, toLngLat, type Network } from './network'
-import { applyLanes, type LanesFile } from './lanes'
+import { applyLanes, laneMarkings, type LanesFile } from './lanes'
 import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
 import { BUS_ID_BASE, TRAIN_ID_BASE, TransitModel } from './transit'
@@ -303,6 +303,17 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
       lines: transit.infos,
       timetableDate: transit.timetableDate,
       signals: traffic.signals?.plan.heads.map(({ x, y, bearing }) => ({ x, y, bearing })) ?? [],
+    })
+    const round = (v: number) => Math.round(v * 1e6) / 1e6
+    post({
+      type: 'laneMarkings',
+      features: laneMarkings(scenario.net, lanesFile).map((m) => ({
+        coordinates: m.points.map(([x, y]) => toLngLat(file.meta.projection, x, y).map(round) as [number, number]),
+        kind: m.kind,
+        offset: Math.round(m.offset * 100) / 100,
+        width: Math.round(m.width * 100) / 100,
+        motorway: m.motorway,
+      })),
     })
     lastTick = performance.now()
     tick()

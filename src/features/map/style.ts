@@ -35,6 +35,8 @@ export interface Palette {
   roadMajorCasing: string
   motorway: string
   motorwayCasing: string
+  /** Lane lines on multi-lane roads. */
+  laneMarking: string
   path: string
   rail: string
   label: string
@@ -68,6 +70,7 @@ export const DAY: Palette = {
   roadMajorCasing: '#c5cbd4',
   motorway: '#f3c97a',
   motorwayCasing: '#d09d4a',
+  laneMarking: '#9aa3ae',
   path: '#c2c8d0',
   rail: '#98a1ab',
   label: '#353d4a',
@@ -100,6 +103,7 @@ export const NIGHT: Palette = {
   roadMajorCasing: '#151a21',
   motorway: '#8a6a45',
   motorwayCasing: '#2a2016',
+  laneMarking: '#7d8896',
   path: '#2a3340',
   rail: '#47505d',
   label: '#a9b4c2',
@@ -176,6 +180,21 @@ const roadClass = (...classes: string[]): ExpressionSpecification => [
 ]
 
 const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel']
+
+/** GeoJSON source of road surfaces and lane lines on multi-lane roads (filled by the simulation). */
+export const LANES = 'lane-markings'
+
+/** Metres to screen pixels at the Gooi's latitude, for drawing at true scale. */
+const METRES_PER_PIXEL_Z0 = 156_543.034 * Math.cos((52.26 * Math.PI) / 180)
+const metres = (value: ExpressionSpecification | number): ExpressionSpecification => [
+  'interpolate',
+  ['exponential', 2],
+  ['zoom'],
+  12,
+  ['*', value, 2 ** 12 / METRES_PER_PIXEL_Z0],
+  22,
+  ['*', value, 2 ** 22 / METRES_PER_PIXEL_Z0],
+]
 
 /** Raster source and layer id for the aerial photo basemap. */
 export const AERIAL = 'aerial'
@@ -322,6 +341,46 @@ function buildLayers(color: Palette): LayerSpecification[] {
       filter: ['all', isLine, roadClass('motorway')],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': color.motorway, 'line-width': width(1, 18), 'line-opacity': 0.85 },
+    },
+
+    // Multi-lane roads at true width, with their lane lines (from street level).
+    {
+      id: 'lane-surface',
+      type: 'line',
+      source: LANES,
+      minzoom: 15,
+      filter: ['==', ['get', 'kind'], 'surface'],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': ['case', ['get', 'motorway'], color.motorway, color.roadMajor],
+        'line-width': metres(['get', 'width']),
+        'line-offset': metres(['get', 'offset']),
+      },
+    },
+    {
+      id: 'lane-lines',
+      type: 'line',
+      source: LANES,
+      minzoom: 16,
+      filter: ['==', ['get', 'kind'], 'divider'],
+      paint: {
+        'line-color': color.laneMarking,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 16, 0.6, 20, 2],
+        'line-offset': metres(['get', 'offset']),
+        'line-dasharray': [3, 4],
+      },
+    },
+    {
+      id: 'lane-edges',
+      type: 'line',
+      source: LANES,
+      minzoom: 16,
+      filter: ['match', ['get', 'kind'], ['centre', 'edge'], true, false],
+      paint: {
+        'line-color': color.laneMarking,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 16, 0.6, 20, ['case', ['==', ['get', 'kind'], 'centre'], 2.4, 1.4]],
+        'line-offset': metres(['get', 'offset']),
+      },
     },
 
     // Rail
@@ -522,6 +581,7 @@ export function buildStyle(palette: Palette): StyleSpecification {
           '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> · ' +
           '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
       },
+      [LANES]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [AERIAL]: {
         type: 'raster',
         // PDOK Luchtfoto: the latest national aerial photography, open data.
