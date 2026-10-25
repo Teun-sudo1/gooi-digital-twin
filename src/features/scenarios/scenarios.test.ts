@@ -53,7 +53,7 @@ describe('road edits', () => {
   it('adds cycle paths for bikes and pedestrians, keeping existing edge ids', () => {
     const base = buildNetwork(file)
     const [lng, lat] = toLngLat(file.meta.projection, 60, 40)
-    const path: Intervention = { kind: 'cycle-path', id: 'p1', from: 3, to: 1, points: [[lng, lat]] }
+    const path: Intervention = { kind: 'new-road', id: 'p1', road: 'cycleway', from: 3, to: 1, points: [[lng, lat]], kmh: 0, lanes: 1, oneway: false }
     const scenario = buildScenarioNetwork(file, [path])
     const { net } = scenario
     expect(scenario.baseEdges).toBe(base.edgeCount)
@@ -65,12 +65,40 @@ describe('road edits', () => {
     expect(net.names[net.segName[5]]).toBe('New cycle path')
   })
 
+  it('adds roads for cars, one-way in the drawing direction, with their lanes', () => {
+    const [lng, lat] = toLngLat(file.meta.projection, 60, 40)
+    const road = (oneway: boolean, kind: 'residential' | 'primary' = 'residential'): Intervention => ({
+      kind: 'new-road', id: 'r1', road: kind, from: 3, to: 1, points: [[lng, lat]], kmh: 50, lanes: 2, oneway,
+    })
+    const twoWay = buildScenarioNetwork(file, [road(false)])
+    expect(route(twoWay.net, Mode.Car, 3, 1)).toEqual([5])
+    expect(route(twoWay.net, Mode.Car, 1, 3)).toEqual([5])
+    expect(route(twoWay.net, Mode.Bike, 3, 1)).toEqual([5])
+    expect(twoWay.newLanes).toEqual([2])
+    expect(twoWay.net.names[twoWay.net.segName[5]]).toBe('New street')
+    const oneWay = buildScenarioNetwork(file, [road(true)]).net
+    expect(route(oneWay, Mode.Car, 3, 1)).toEqual([5])
+    expect(route(oneWay, Mode.Car, 1, 3)).not.toEqual([5])
+    // Main roads are for cars only.
+    const main = buildScenarioNetwork(file, [road(false, 'primary')]).net
+    expect(route(main, Mode.Car, 3, 1)).toEqual([5])
+    expect(route(main, Mode.Bike, 3, 1)).not.toEqual([5])
+  })
+
+  it('removes a road completely', () => {
+    const scenario = buildScenarioNetwork(file, [{ kind: 'access', segment: 4, access: 'removed' }])
+    expect(scenario.removed.has(4)).toBe(true)
+    for (const mode of [Mode.Car, Mode.Bike, Mode.Foot]) expect(route(scenario.net, mode, 3, 4)).toEqual([2, 0, 1, 3])
+  })
+
   it('ignores malformed edits', () => {
     const list = [
       { kind: 'access', segment: 99, access: 'closed' },
       { kind: 'access', segment: 1, access: 'open-sesame' },
       { kind: 'speed', segment: 1, kmh: 999 },
-      { kind: 'cycle-path', id: 'x', from: 2, to: 2, points: [] },
+      { kind: 'new-road', id: 'x', road: 'cycleway', from: 2, to: 2, points: [], kmh: 0, lanes: 1, oneway: false },
+      { kind: 'new-road', id: 'y', road: 'primary', from: 1, to: 2, points: [], kmh: 50, lanes: 9, oneway: false },
+      { kind: 'new-road', id: 'z', road: 'motorway', from: 1, to: 2, points: [], kmh: 50, lanes: 1, oneway: false },
       { kind: 'teleport' },
       null,
       { kind: 'speed', segment: 1, kmh: 50 },

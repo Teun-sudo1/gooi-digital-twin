@@ -32,7 +32,7 @@ const STEPS: Step[] = [
   },
   {
     title: 'Change the roads',
-    text: 'Close a road, make it car-free or bus-only, change a speed limit or draw a new cycle path. Traffic reroutes at once, and the statistics compare it with the original.',
+    text: 'Close or remove a road, make it car-free or bus-only, change a speed limit, or draw a new road or cycle path, curved if you like. Traffic reroutes at once, and the statistics compare it with the original.',
     target: ['.scenario-panel', '.mobile-tabs button:nth-child(2)'],
   },
   {

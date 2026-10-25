@@ -23,18 +23,25 @@ function assumedLanes(cls: string, oneway: boolean) {
   return 1
 }
 
-/** Fills `net.edgeLanes` from the mapped counts (or with ones when switched off). */
-export function applyLanes(net: Network, file: LanesFile | null, enabled: boolean) {
-  for (let e = 0; e < net.edgeCount; e++) net.edgeLanes[e] = enabled ? mappedLanes(net, file, e) : 1
+/** Roads added in a scenario: segments from `first` on, with their lanes per direction. */
+export interface AddedLanes {
+  first: number
+  lanes: number[]
 }
 
-/** Car lanes of an edge as mapped (or assumed); 1 for edges cars never use. */
-function mappedLanes(net: Network, file: LanesFile | null, e: number) {
+/** Fills `net.edgeLanes` from the mapped counts (or with ones when switched off). */
+export function applyLanes(net: Network, file: LanesFile | null, enabled: boolean, added?: AddedLanes) {
+  for (let e = 0; e < net.edgeCount; e++) net.edgeLanes[e] = enabled ? mappedLanes(net, file, e, added) : 1
+}
+
+/** Car lanes of an edge as mapped (or assumed, or as drawn for a new road); 1 for edges cars never use. */
+function mappedLanes(net: Network, file: LanesFile | null, e: number, added?: AddedLanes) {
   const s = net.edgeSeg[e]
   const flags = s < net.segmentCount ? net.segFlags[s] : 0
   // By the street as mapped, not its current access: a street closed in a scenario keeps
   // its lanes, so the cars still on it don't end up in one.
   if (!(flags & (net.edgeRev[e] ? SegmentFlag.CarBackward : SegmentFlag.CarForward))) return 1
+  if (added && s >= added.first) return Math.max(1, Math.min(MAX_LANES, added.lanes[s - added.first] ?? 1))
   const tagged = file?.ways[String(net.segWay[s])]
   const oneway = ((flags & SegmentFlag.CarForward) !== 0) !== ((flags & SegmentFlag.CarBackward) !== 0)
   const lanes = (tagged ? tagged[net.edgeRev[e]] : 0) || assumedLanes(net.classes[net.segClass[s]], oneway)
@@ -62,20 +69,20 @@ export interface LaneMarking {
   motorway: boolean
 }
 
-export function laneMarkings(net: Network, file: LanesFile | null): LaneMarking[] {
+export function laneMarkings(net: Network, file: LanesFile | null, added?: AddedLanes, hidden?: Set<number>): LaneMarking[] {
   const out: LaneMarking[] = []
   const forward = new Uint8Array(net.segmentCount)
   const backward = new Uint8Array(net.segmentCount)
   for (let e = 0; e < net.edgeCount; e++) {
     const s = net.edgeSeg[e]
     if (s >= net.segmentCount || !(net.segFlags[s] & (net.edgeRev[e] ? SegmentFlag.CarBackward : SegmentFlag.CarForward))) continue
-    ;(net.edgeRev[e] ? backward : forward)[s] = mappedLanes(net, file, e)
+    ;(net.edgeRev[e] ? backward : forward)[s] = mappedLanes(net, file, e, added)
   }
   const motorwayClass = net.classes.indexOf('motorway')
   for (let s = 0; s < net.segmentCount; s++) {
     const f = forward[s]
     const b = backward[s]
-    if (Math.max(f, b) < 2) continue
+    if (Math.max(f, b) < 2 || hidden?.has(s)) continue
     const points: [number, number][] = []
     for (let k = net.geomStart[s]; k < net.geomStart[s + 1]; k++) points.push([net.geomX[k], net.geomY[k]])
     const motorway = net.segClass[s] === motorwayClass

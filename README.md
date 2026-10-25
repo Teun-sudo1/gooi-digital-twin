@@ -12,7 +12,7 @@ A living geographic model of the Gooi that can be explored in 3D and extended ov
 
 1. **Real 3D map** of the region (done)
 2. **Living city:** clearly labelled *simulated* cars, bikes, pedestrians, buses and trains on the real networks (done)
-3. **Interactive infrastructure:** road closures, speed limits, car-free and pedestrian streets, bus-only roads and new cycle paths that change the simulation, with the original network always restorable (done; scenario comparison and sharing next)
+3. **Interactive infrastructure:** road closures, speed limits, car-free and pedestrian streets, bus-only roads, removed roads and new roads and cycle paths that change the simulation, with the original network always restorable (done; scenario comparison and sharing next)
 
 Everything runs in the browser as a static site. There is no backend.
 
@@ -64,11 +64,12 @@ Everything runs in the browser as a static site. There is no backend.
 Change the street network on the map and watch simulated traffic adapt:
 
 - **Close road:** nobody can use the street any more
+- **Remove road:** the street disappears completely, from the map as well as from traffic
 - **Car-free:** cars are banned; cyclists and pedestrians can still use the street
 - **Pedestrians only:** walking only (works on streets and cycle paths)
 - **Bus only:** cars and bikes are banned (pedestrians keep the pavement)
 - **Speed limit:** 30, 50, 60, 80 or 100 km/h. Routes prefer faster streets, so a lower limit also moves traffic elsewhere.
-- **New cycle path:** draw a two-way path between two junctions, with bends. It's open to cyclists and pedestrians.
+- **New road:** draw a road between two junctions: a cycle path, a street, a through road or a main road, with 1–3 lanes each way (or one-way in the drawing direction) and its speed limit. With **Smooth curves** on (the default) it follows a smooth curve through the points you click. Cycle paths are open to cyclists and pedestrians, streets also to cars, main roads to cars only. New roads are drawn at their true width, with lane lines when they have more than one lane.
 - **Undo on street**, an undo button per change, and **Restore original network**
 
 **Before and after.** At your first change, the simulation forks: a copy keeps running on the original network, in step and with the same demand. The dashboard then compares the two since your last change: car journey time, car speed, share of time delayed, car kilometres and CO₂ per hour, and bus delay. On the map, streets with clearly more car traffic turn orange and streets with less turn blue. Both runs are simulated, and differences of a few percent can be chance.
@@ -111,8 +112,8 @@ Panels move into a dock at the bottom: the simulation controls with tabs for *St
 | `Space` | Play / pause simulation |
 | `/` | Focus search |
 | `?` | Show shortcuts |
-| `Esc` | Stop following / editing roads / cancel a cycle path |
-| `Enter` / `Backspace` | Finish the cycle path / undo its last bend |
+| `Esc` | Stop following / editing roads / cancel a new road |
+| `Enter` / `Backspace` | Finish the new road / undo its last bend |
 
 ## Technology
 
@@ -179,7 +180,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, 
 - **Trains** are a pure function of the clock (timetable interpolation), so time jumps are instant. **Buses** (`buses.ts`) are stateful vehicles. At start-up each bus line is matched to the street edges it runs along (sampled every 6 m, snapped by distance and direction), so buses can take part in car-following, and cars can queue behind them.
 - **Comparison:** at the first edit the worker forks the traffic model and bus fleet onto the original network and steps both. Each run keeps totals since the last edit (car-seconds, car-km, delayed car-seconds, journeys, bus delay, and cars entering each street), which the worker compares every 1.5 s. It sends the map street geometry once per street.
 - **Trees and street lights** are drawn by a second instanced WebGL layer (`sceneryLayer.ts`), but only in 250 m cells near the camera (up to 110,000 trees and 12,000 lamps). Forest cells are generated on demand from the OSM outlines on a jittered 7.5 m grid, a few per frame, and cached. The light pools are a MapLibre circle layer that fades in with the night.
-- **Road changes.** The main thread sends the whole scenario (closed or restricted segments, speed limits, new cycle paths) to the worker. The worker rebuilds the network from the original file (about 25 ms), clears the mode bits and changes the speeds of the edited streets, and appends new cycle paths after the original segments, so existing edge ids stay valid. Cached path trees are dropped. Trips whose remaining route is no longer allowed are rerouted a few at a time (at most 6 ms per step). Picking a street under the pointer also happens in the worker, on the original geometry.
+- **Road changes.** The main thread sends the whole scenario (closed, removed or restricted segments, speed limits, new roads) to the worker. The worker rebuilds the network from the original file (about 25 ms), clears the mode bits and changes the speeds of the edited streets, and appends new roads after the original segments, so existing edge ids stay valid. Cached path trees are dropped. Trips whose remaining route is no longer allowed are rerouted a few at a time (at most 6 ms per step). Picking a street under the pointer also happens in the worker, on the original geometry.
 
 ## Data sources and attribution
 
@@ -207,7 +208,7 @@ OpenFreeMap, Overpass, OVapi, PDOK and Open-Meteo are free public services, so k
 - Bus passengers are simulated with assumed demand; there is no ridership data. Bus stretches without a matching simulated street (such as dedicated busways) are driven freely. Bus delays are simulated and don't reflect real punctuality. Trains don't interact with anything.
 - The before/after comparison runs both versions with the same demand, so it shows rerouting and congestion effects, not changes in how people choose to travel. While a comparison is running the simulation does twice the work, so at 60× the clock can run slower than requested.
 - Pedestrians are only simulated around a street-level view (zoom 15+).
-- Road changes work per street segment (junction to junction), and only the model reacts to them: buses keep their timetable, and the demand doesn't change (no one decides to cycle because a road was closed). New cycle paths are straight lines between the points you click and don't cross other streets at grade. Changes are not saved when the page is reloaded.
+- Road changes work per street segment (junction to junction), and only the model reacts to them: buses keep their timetable, and the demand doesn't change (no one decides to cycle because a road was closed). New roads start and end at existing junctions (not halfway along a street) and don't connect to streets they cross. A removed road is covered with the ground colour, but its name label can still show. Changes are not saved when the page is reloaded.
 - CO₂ is a rough estimate (cars only, 150 g/km).
 - Road vehicles are drawn up to about 1.5× life size (less for long vehicles), the most that still fits their real spacing; people are enlarged more when zoomed out.
 - Trip demand uses CBS population and business counts as weights; the trip rates, rush-hour profiles and the 15% leaving the region are assumptions. Weather effects on travel are assumed too. Live weather is the current weather, even when the simulated clock shows another time.

@@ -5,13 +5,14 @@ import { toInterventions, useScenarioStore } from '../../store/useScenarioStore'
 import { useSimulationStore } from '../../store/useSimulationStore'
 import type { SegmentInfo } from '../../types/simulation'
 import type { SimulationClient } from '../simulation/client'
+import { lineLength, smoothLine } from './curves'
 import { addScenarioLayers, EDITS, removeScenarioLayers, showDraft, showEdits, showHover } from './scenarioLayers'
 import { TOOL_BY_ID } from './tools'
 
 /** Pick tolerance around the pointer, in screen pixels. */
 const PICK_PX = 14
 const SNAP_PX = 26
-/** A second click this close to the last bend finishes the path (a double-click). */
+/** A second click this close to the last bend finishes the road (a double-click). */
 const FINISH_PX = 10
 
 /** Metres between two points (equirectangular; fine at street scale). */
@@ -31,7 +32,7 @@ const lngLatOf = (event: MapMouseEvent): [number, number] => [event.lngLat.lng, 
 
 /**
  * Road editing on the map: highlights the street under the pointer for the
- * active tool, applies the tool on click, draws new cycle paths, and keeps
+ * active tool, applies the tool on click, draws new roads, and keeps
  * the simulation and the edit layers in sync with the scenario store.
  */
 export function useScenarioEditing() {
@@ -43,13 +44,13 @@ export function useScenarioEditing() {
     if (!map || !controller) return
     addScenarioLayers(map)
     const sync = () => {
-      const { edits, paths } = useScenarioStore.getState()
-      showEdits(map, Object.values(edits).sort((a, b) => a.order - b.order), paths)
-      controller.setScenario(toInterventions(edits, paths))
+      const { edits, roads } = useScenarioStore.getState()
+      showEdits(map, Object.values(edits).sort((a, b) => a.order - b.order), roads)
+      controller.setScenario(toInterventions(edits, roads))
     }
     sync()
     const unsubscribe = useScenarioStore.subscribe((state, previous) => {
-      if (state.edits !== previous.edits || state.paths !== previous.paths) sync()
+      if (state.edits !== previous.edits || state.roads !== previous.roads) sync()
     })
     return () => {
       unsubscribe()
@@ -73,9 +74,9 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
   let disposed = false
 
   const canvas = map.getCanvas()
-  const redrawDraft = () => showDraft(map, store.getState().draft, cursor, snap)
+  const redrawDraft = () => showDraft(map, store.getState().draft, cursor, snap, store.getState().roadOptions.curved)
 
-  /** Changed street or new cycle path under the pointer (for the undo tool). */
+  /** Changed street or new road under the pointer (for the undo tool). */
   const editedAt = (point: { x: number; y: number }): SegmentInfo | null => {
     const box: [PointLike, PointLike] = [
       [point.x - PICK_PX / 2, point.y - PICK_PX / 2],
@@ -83,15 +84,15 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
     ]
     const hit = map.queryRenderedFeatures(box, { layers: [EDITS] })[0]
     if (!hit) return null
-    const { edits, paths } = store.getState()
-    const pathId = hit.properties.pathId as string | undefined
-    if (pathId) {
-      const path = paths.find((p) => p.id === pathId)
-      return path ? { segment: -1, pathId, name: 'New cycle path', roadClass: 'cycleway', coordinates: path.coordinates, car: false, bike: true, foot: true, speedKmh: 0 } : null
+    const { edits, roads } = store.getState()
+    const roadId = hit.properties.roadId as string | undefined
+    if (roadId) {
+      const road = roads.find((r) => r.id === roadId)
+      return road ? { segment: -1, roadId, name: 'New road', roadClass: road.road, coordinates: road.coordinates, car: road.road !== 'cycleway', bike: true, foot: true, speedKmh: road.kmh } : null
     }
     const edit = edits[Number(hit.properties.segment)]
     return edit
-      ? { segment: edit.segment, pathId: null, name: edit.name, roadClass: edit.roadClass, coordinates: edit.coordinates, car: true, bike: true, foot: true, speedKmh: edit.originalSpeedKmh }
+      ? { segment: edit.segment, roadId: null, name: edit.name, roadClass: edit.roadClass, coordinates: edit.coordinates, car: true, bike: true, foot: true, speedKmh: edit.originalSpeedKmh }
       : null
   }
 
@@ -99,6 +100,11 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
     const tool = store.getState().tool
     if (!tool) return null
     if (tool === 'erase') return editedAt(event.point)
+    // Removing a road also takes away roads added in this scenario.
+    if (tool === 'removed') {
+      const added = editedAt(event.point)
+      if (added?.roadId) return added
+    }
     const result = await controller.pick('segment', lngLatOf(event), radiusAt(map, event.point, PICK_PX), TOOL_BY_ID[tool].mask)
     return result.segment
   }
@@ -108,7 +114,7 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
 
   const updateHover = async (event: MapMouseEvent) => {
     const tool = store.getState().tool
-    if (tool === 'cycle-path') {
+    if (tool === 'new-road') {
       cursor = lngLatOf(event)
       snap = (await junctionAt(event, SNAP_PX))?.coordinates ?? null
       redrawDraft()
@@ -138,8 +144,8 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
     })
   }
 
-  const finishPath = async (event: MapMouseEvent | null) => {
-    const { draft, setMessage, addPath } = store.getState()
+  const finishRoad = async (event: MapMouseEvent | null) => {
+    const { draft, setMessage, addRoad, roadOptions } = store.getState()
     if (!draft) return
     const points = [...draft.points]
     // The finishing click (or the last bend, for Enter) snaps to a junction.
@@ -149,17 +155,17 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
     const lngLat = map.unproject(point)
     const junction = (await controller.pick('junction', [lngLat.lng, lngLat.lat], radiusAt(map, point, SNAP_PX))).junction
     if (!junction) {
-      setMessage('Finish the path on a junction of a street or cycle path.')
+      setMessage('Finish the road on a junction of a street or path.')
       return
     }
     if (junction.node === draft.start.node) {
-      setMessage('The path has to end at a different junction.')
+      setMessage('The road has to end at a different junction.')
       return
     }
-    const coordinates = [draft.start.coordinates, ...points, junction.coordinates]
-    let lengthMeters = 0
-    for (let i = 1; i < coordinates.length; i++) lengthMeters += metresBetween(coordinates[i - 1], coordinates[i])
-    addPath({ from: draft.start.node, to: junction.node, coordinates, lengthMeters })
+    const clicked = [draft.start.coordinates, ...points, junction.coordinates]
+    const coordinates = roadOptions.curved ? smoothLine(clicked) : clicked
+    const { curved: _, ...options } = roadOptions
+    addRoad({ ...options, from: draft.start.node, to: junction.node, coordinates, lengthMeters: lineLength(coordinates) })
     setMessage(null)
     cursor = null
     redrawDraft()
@@ -169,11 +175,11 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
     const state = store.getState()
     const tool = state.tool
     if (!tool) return
-    if (tool === 'cycle-path') {
+    if (tool === 'new-road') {
       const { draft } = state
       if (!draft) {
         const start = await junctionAt(event, SNAP_PX)
-        if (!start) state.setMessage('Start the path on a junction of a street or cycle path.')
+        if (!start) state.setMessage('Start the road on a junction of a street or path.')
         else store.setState({ draft: { start, points: [] }, message: null })
         redrawDraft()
         return
@@ -181,7 +187,7 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
       const previous = draft.points.at(-1) ?? draft.start.coordinates
       const p = map.project(previous)
       if (draft.points.length && Math.hypot(p.x - event.point.x, p.y - event.point.y) < FINISH_PX) {
-        await finishPath(event)
+        await finishRoad(event)
         return
       }
       state.setDraft({ ...draft, points: [...draft.points, lngLatOf(event)] })
@@ -208,7 +214,7 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
       else state.setTool(null)
       redrawDraft()
     } else if (event.key === 'Enter' && state.draft) {
-      void finishPath(null)
+      void finishRoad(null)
     } else if (event.key === 'Backspace' && state.draft) {
       event.preventDefault()
       if (state.draft.points.length) state.setDraft({ ...state.draft, points: state.draft.points.slice(0, -1) })
@@ -217,17 +223,17 @@ function attachEditing(map: MapLibreMap, controller: SimulationClient) {
     }
   }
 
-  // Tool changes: cursor, double-click zoom (used to finish a path), and clearing highlights.
+  // Tool changes: cursor, double-click zoom (used to finish a road), and clearing highlights.
   const unsubscribe = store.subscribe((state, previous) => {
     if (state.tool !== previous.tool) {
       canvas.style.cursor = state.tool ? 'crosshair' : ''
-      if (state.tool === 'cycle-path') map.doubleClickZoom.disable()
+      if (state.tool === 'new-road') map.doubleClickZoom.disable()
       else map.doubleClickZoom.enable()
       cursor = null
       snap = null
       showHover(map, null, null)
     }
-    if (state.draft !== previous.draft) redrawDraft()
+    if (state.draft !== previous.draft || state.roadOptions !== previous.roadOptions) redrawDraft()
   })
 
   const onLeave = () => {

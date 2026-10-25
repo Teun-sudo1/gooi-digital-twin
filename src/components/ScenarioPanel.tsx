@@ -2,13 +2,15 @@ import { LngLatBounds } from 'maplibre-gl'
 import { useState } from 'react'
 import { TOOL_BY_ID, TOOLS } from '../features/scenarios/tools'
 import { useMapInstance } from '../hooks/useMapInstance'
-import { type CyclePath, type RoadEdit, SPEED_CHOICES, useScenarioStore } from '../store/useScenarioStore'
+import { NEW_ROAD } from '../features/scenarios/scenarioNetwork'
+import { type NewRoad, type RoadEdit, SPEED_CHOICES, useScenarioStore } from '../store/useScenarioStore'
 import { useSimulationStore } from '../store/useSimulationStore'
-import type { RoadAccess } from '../types/simulation'
+import type { NewRoadType, RoadAccess } from '../types/simulation'
 import { formatCount } from '../utils/format'
 
 const ACCESS_LABEL: Record<RoadAccess, string> = {
   closed: 'Closed to all traffic',
+  removed: 'Removed',
   'no-cars': 'Car-free: bikes and pedestrians',
   'foot-only': 'Pedestrians only',
   'bus-only': 'Bus only',
@@ -23,6 +25,76 @@ function describeEdit(edit: RoadEdit) {
   return parts.join(' · ')
 }
 
+const ROAD_TYPES: { id: NewRoadType; label: string }[] = [
+  { id: 'cycleway', label: 'Cycle path' },
+  { id: 'residential', label: 'Street' },
+  { id: 'tertiary', label: 'Through road' },
+  { id: 'primary', label: 'Main road' },
+]
+const NEW_SPEEDS = [30, 50, 60, 80, 100]
+
+function describeRoad(road: NewRoad) {
+  const length = `${formatCount(Math.round(road.lengthMeters))} m`
+  if (road.road === 'cycleway') return `${length}, two-way, open to pedestrians`
+  const lanes = `${road.lanes} lane${road.lanes > 1 ? 's' : ''}${road.oneway ? ', one-way' : ' each way'}`
+  const users = road.road === 'primary' ? 'cars only' : 'cars, bikes and pedestrians'
+  return `${length} · ${lanes} · ${road.kmh} km/h · ${users}`
+}
+
+/** Settings for a road about to be drawn. */
+function RoadOptionsBar() {
+  const options = useScenarioStore((s) => s.roadOptions)
+  const set = useScenarioStore((s) => s.setRoadOptions)
+  const cars = options.road !== 'cycleway'
+  return (
+    <div className="road-options">
+      <div className="segmented small" role="radiogroup" aria-label="Kind of road">
+        {ROAD_TYPES.map((t) => (
+          <button key={t.id} role="radio" aria-checked={options.road === t.id} className={options.road === t.id ? 'active' : undefined} onClick={() => set({ road: t.id })}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {cars && (
+        <>
+          <div className="speed-choice">
+            <span id="lanes-label">Lanes</span>
+            <div className="segmented small" role="radiogroup" aria-labelledby="lanes-label">
+              {[1, 2, 3].map((n) => (
+                <button key={n} role="radio" aria-checked={options.lanes === n} className={options.lanes === n ? 'active' : undefined} onClick={() => set({ lanes: n })}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <span>{options.oneway ? 'one way' : 'each way'}</span>
+          </div>
+          <div className="speed-choice">
+            <span id="new-speed-label">Limit</span>
+            <div className="segmented small" role="radiogroup" aria-labelledby="new-speed-label">
+              {NEW_SPEEDS.map((kmh) => (
+                <button key={kmh} role="radio" aria-checked={options.kmh === kmh} className={options.kmh === kmh ? 'active' : undefined} onClick={() => set({ kmh })}>
+                  {kmh}
+                </button>
+              ))}
+            </div>
+            <span>km/h</span>
+          </div>
+        </>
+      )}
+      <div className="road-checks">
+        {cars && (
+          <label>
+            <input type="checkbox" checked={options.oneway} onChange={() => set({ oneway: !options.oneway })} /> One-way (in the drawing direction)
+          </label>
+        )}
+        <label>
+          <input type="checkbox" checked={options.curved} onChange={() => set({ curved: !options.curved })} /> Smooth curves
+        </label>
+      </div>
+    </div>
+  )
+}
+
 type Item = { key: string; colour: string; title: string; detail: string; coordinates: [number, number][]; order: number; remove: () => void }
 
 export function ScenarioPanel({ embedded = false }: { embedded?: boolean }) {
@@ -30,7 +102,7 @@ export function ScenarioPanel({ embedded = false }: { embedded?: boolean }) {
   const ready = useSimulationStore((s) => s.status === 'ready')
   const rerouted = useSimulationStore((s) => s.stats?.reroutedTrips ?? 0)
   const stranded = useSimulationStore((s) => s.stats?.strandedTrips ?? 0)
-  const { tool, speedKmh, edits, paths, hover, message, draft, setTool, setSpeed, removeEdit, removePath, reset } = useScenarioStore()
+  const { tool, speedKmh, edits, roads, hover, message, draft, setTool, setSpeed, removeEdit, removeRoad, reset } = useScenarioStore()
   const [open, setOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 640)
 
   const items: Item[] = [
@@ -43,14 +115,14 @@ export function ScenarioPanel({ embedded = false }: { embedded?: boolean }) {
       order: e.order,
       remove: () => removeEdit(e.segment),
     })),
-    ...paths.map((p: CyclePath) => ({
-      key: p.id,
-      colour: TOOL_BY_ID['cycle-path'].colour,
-      title: 'New cycle path',
-      detail: `${formatCount(Math.round(p.lengthMeters))} m, two-way, open to pedestrians`,
-      coordinates: p.coordinates,
-      order: p.order,
-      remove: () => removePath(p.id),
+    ...roads.map((r) => ({
+      key: r.id,
+      colour: TOOL_BY_ID['new-road'].colour,
+      title: NEW_ROAD[r.road].name,
+      detail: describeRoad(r),
+      coordinates: r.coordinates,
+      order: r.order,
+      remove: () => removeRoad(r.id),
     })),
   ].sort((a, b) => b.order - a.order)
 
@@ -61,7 +133,7 @@ export function ScenarioPanel({ embedded = false }: { embedded?: boolean }) {
   }
 
   const active = tool ? TOOL_BY_ID[tool] : null
-  const hint = active?.id === 'cycle-path' && draft ? 'Click to add bends, double-click near a junction to finish. Backspace undoes a bend, Esc cancels.' : active?.hint
+  const hint = active?.id === 'new-road' && draft ? 'Click to add bends, double-click near a junction to finish. Backspace undoes a bend, Esc cancels.' : active?.hint
 
   return (
     <section className={`panel scenario-panel ${open || embedded ? 'open' : ''} ${embedded ? 'embedded' : ''}`} aria-label="Road changes">
@@ -105,10 +177,12 @@ export function ScenarioPanel({ embedded = false }: { embedded?: boolean }) {
             </div>
           )}
 
+          {tool === 'new-road' && <RoadOptionsBar />}
+
           {active ? (
             <p className="tool-hint" aria-live="polite">
               {hint}
-              {hover && tool !== 'cycle-path' && (
+              {hover && tool !== 'new-road' && (
                 <span className="hover-street">
                   {streetName(hover.name, hover.roadClass)}
                   {hover.car && hover.speedKmh ? ` · ${hover.speedKmh} km/h` : ''}

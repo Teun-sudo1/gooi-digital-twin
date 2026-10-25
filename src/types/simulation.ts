@@ -163,19 +163,37 @@ export interface TransitLineInfo {
 // Scenarios: changes to the street network made on the map (milestone 3)
 
 /** Who may still use a street after an edit. Buses are timetable-driven and unaffected. */
-export type RoadAccess = 'closed' | 'no-cars' | 'foot-only' | 'bus-only'
+/** `removed`: gone completely, from the map as well as from traffic. */
+export type RoadAccess = 'closed' | 'removed' | 'no-cars' | 'foot-only' | 'bus-only'
+
+/** Kinds of road that can be added (OSM highway classes). */
+export type NewRoadType = 'cycleway' | 'residential' | 'tertiary' | 'primary'
 
 export type Intervention =
   | { kind: 'access'; segment: number; access: RoadAccess }
   | { kind: 'speed'; segment: number; kmh: number }
-  /** A new two-way cycle path (also open to pedestrians) between two junctions. */
-  | { kind: 'cycle-path'; id: string; from: number; to: number; points: [number, number][] }
+  /**
+   * A new road between two junctions, along `points` (lng/lat, without the junctions).
+   * Cycle paths are two-way and open to pedestrians; streets also to bikes; main roads to cars only.
+   * `lanes` is per direction; a one-way road runs from `from` to `to`.
+   */
+  | {
+      kind: 'new-road'
+      id: string
+      road: NewRoadType
+      from: number
+      to: number
+      points: [number, number][]
+      kmh: number
+      lanes: number
+      oneway: boolean
+    }
 
 /** A street segment found under the pointer, described for the map and the edit list. */
 export interface SegmentInfo {
   segment: number
-  /** Set when the segment is a cycle path added in the scenario. */
-  pathId: string | null
+  /** Set when the segment is a road added in the scenario. */
+  roadId: string | null
   name: string | null
   roadClass: string
   coordinates: [number, number][]

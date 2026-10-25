@@ -37,6 +37,8 @@ export interface Palette {
   motorwayCasing: string
   /** Lane lines on multi-lane roads. */
   laneMarking: string
+  /** Cycle paths added in the road changes (red asphalt, as in the Netherlands). */
+  cycleway: string
   path: string
   rail: string
   label: string
@@ -71,6 +73,7 @@ export const DAY: Palette = {
   motorway: '#f3c97a',
   motorwayCasing: '#d09d4a',
   laneMarking: '#9aa3ae',
+  cycleway: '#d9a29a',
   path: '#c2c8d0',
   rail: '#98a1ab',
   label: '#353d4a',
@@ -104,6 +107,7 @@ export const NIGHT: Palette = {
   motorway: '#8a6a45',
   motorwayCasing: '#2a2016',
   laneMarking: '#7d8896',
+  cycleway: '#5a3a36',
   path: '#2a3340',
   rail: '#47505d',
   label: '#a9b4c2',
@@ -183,6 +187,9 @@ const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel']
 
 /** GeoJSON source of road surfaces and lane lines on multi-lane roads (filled by the simulation). */
 export const LANES = 'lane-markings'
+
+/** GeoJSON source of roads added and removed in the road changes (filled by the scenario editor). */
+export const NEW_ROADS = 'scenario-roads'
 
 /** Metres to screen pixels at the Gooi's latitude, for drawing at true scale. */
 const METRES_PER_PIXEL_Z0 = 156_543.034 * Math.cos((52.26 * Math.PI) / 180)
@@ -341,6 +348,50 @@ function buildLayers(color: Palette): LayerSpecification[] {
       filter: ['all', isLine, roadClass('motorway')],
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': color.motorway, 'line-width': width(1, 18), 'line-opacity': 0.85 },
+    },
+
+    // Roads removed in the road changes are covered with the ground colour, at the width the
+    // base map draws them; roads added are drawn at their true width.
+    {
+      id: 'removed-road-mask',
+      type: 'line',
+      source: NEW_ROADS,
+      filter: ['==', ['get', 'kind'], 'removed'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': color.background,
+        'line-width': [
+          'interpolate',
+          ['exponential', 1.6],
+          ['zoom'],
+          10,
+          ['match', ['get', 'size'], 'motorway', 2.4, 'major', 1.8, 'path', 1, 0.9],
+          18,
+          ['match', ['get', 'size'], 'motorway', 26, 'major', 22, 'path', 5, 14],
+        ],
+      },
+    },
+    {
+      id: 'new-road-casing',
+      type: 'line',
+      source: NEW_ROADS,
+      filter: ['==', ['get', 'kind'], 'road'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['case', ['==', ['get', 'road'], 'cycleway'], color.path, color.roadMajorCasing],
+        'line-width': metres(['+', ['get', 'width'], 1.2]),
+      },
+    },
+    {
+      id: 'new-road-fill',
+      type: 'line',
+      source: NEW_ROADS,
+      filter: ['==', ['get', 'kind'], 'road'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['match', ['get', 'road'], 'cycleway', color.cycleway, 'residential', color.roadMinor, color.roadMajor],
+        'line-width': metres(['get', 'width']),
+      },
     },
 
     // Multi-lane roads at true width, with their lane lines (from street level).
@@ -582,6 +633,7 @@ export function buildStyle(palette: Palette): StyleSpecification {
           '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
       },
       [LANES]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      [NEW_ROADS]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [AERIAL]: {
         type: 'raster',
         // PDOK Luchtfoto: the latest national aerial photography, open data.

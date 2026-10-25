@@ -24,7 +24,7 @@ import {
 } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, toLngLat, type Network } from './network'
-import { applyLanes, laneMarkings, type LanesFile } from './lanes'
+import { applyLanes, laneMarkings, type AddedLanes, type LanesFile } from './lanes'
 import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
 import { BUS_ID_BASE, TRAIN_ID_BASE, TransitModel } from './transit'
@@ -304,17 +304,7 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
       timetableDate: transit.timetableDate,
       signals: traffic.signals?.plan.heads.map(({ x, y, bearing }) => ({ x, y, bearing })) ?? [],
     })
-    const round = (v: number) => Math.round(v * 1e6) / 1e6
-    post({
-      type: 'laneMarkings',
-      features: laneMarkings(scenario.net, lanesFile).map((m) => ({
-        coordinates: m.points.map(([x, y]) => toLngLat(file.meta.projection, x, y).map(round) as [number, number]),
-        kind: m.kind,
-        offset: Math.round(m.offset * 100) / 100,
-        width: Math.round(m.width * 100) / 100,
-        motorway: m.motorway,
-      })),
-    })
+    postLaneMarkings()
     lastTick = performance.now()
     tick()
   } catch (error) {
@@ -333,11 +323,11 @@ function applyScenario(list: Intervention[]) {
     baseline = null
     post({ type: 'comparison', comparison: null })
   }
-  const previous = scenario.pathIds
+  const previous = scenario.roadIds
   const next = buildScenarioNetwork(networkFile, interventions)
   // Cycle paths are appended in order: if one was removed, later path edges changed id.
-  const pathsKept = previous.every((id, i) => next.pathIds[i] === id)
-  applyLanes(next.net, lanesFile, lanesOn)
+  const pathsKept = previous.every((id, i) => next.roadIds[i] === id)
+  applyLanes(next.net, lanesFile, lanesOn, addedLanes(next))
   scenario = next
   // Counts run for the whole scenario and restart when the original network is restored.
   main.traffic.setNetwork(next.net, pathsKept ? Infinity : next.baseEdges, interventions.length === 0)
@@ -345,6 +335,28 @@ function applyScenario(list: Intervention[]) {
   resetMeasures()
   lastStats = 0
   lastComparison = performance.now()
+  postLaneMarkings()
+}
+
+function addedLanes(s: ScenarioNetwork): AddedLanes {
+  return { first: s.baseSegments, lanes: s.newLanes }
+}
+
+/** Lane lines for the map: the multi-lane roads of the current scenario, without removed ones. */
+function postLaneMarkings() {
+  if (!scenario) return
+  const projection = scenario.net.projection
+  const round = (v: number) => Math.round(v * 1e6) / 1e6
+  post({
+    type: 'laneMarkings',
+    features: laneMarkings(scenario.net, lanesFile, addedLanes(scenario), scenario.removed).map((m) => ({
+      coordinates: m.points.map(([x, y]) => toLngLat(projection, x, y).map(round) as [number, number]),
+      kind: m.kind,
+      offset: Math.round(m.offset * 100) / 100,
+      width: Math.round(m.width * 100) / 100,
+      motorway: m.motorway,
+    })),
+  })
 }
 
 function pick(message: Extract<ToWorker, { type: 'pick' }>) {
@@ -399,7 +411,7 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'lanes':
       lanesOn = message.enabled === true
-      if (scenario) applyLanes(scenario.net, lanesFile, lanesOn)
+      if (scenario) applyLanes(scenario.net, lanesFile, lanesOn, addedLanes(scenario))
       if (originalNet && originalNet !== scenario?.net) applyLanes(originalNet, lanesFile, lanesOn)
       break
     case 'stop':

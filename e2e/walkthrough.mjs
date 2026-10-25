@@ -258,6 +258,58 @@ async function desktop(browser, url) {
     return street
   })
 
+  await step('remove a road completely, and bring it back', async () => {
+    await page.click('.scenario-panel button:has-text("Remove road")')
+    const spot = await searchMap(page, async () => Boolean(await page.$('.hover-street')))
+    assert(spot, 'no street found under the pointer')
+    await page.mouse.click(spot.x, spot.y)
+    await page.waitForSelector('.edit-list li:has-text("Removed")', { timeout: 10_000 })
+    await shot(page, 'road-removed')
+    await page.keyboard.press('Escape')
+    await page.click('.restore-button')
+    await page.waitForSelector('text=No changes yet', { timeout: 10_000 })
+  })
+
+  await step('draw a new curved main road between two junctions', async () => {
+    await page.click('.scenario-panel button:has-text("New road")')
+    await page.click('.road-options button:has-text("Main road")')
+    const hint = () => page.$eval('.tool-hint', (e) => e.textContent)
+    // Start: click near the centre until a junction is found.
+    const { width, height } = page.viewportSize()
+    let started = false
+    for (let i = 0; i < 40 && !started; i++) {
+      const angle = i * 2.4
+      const r = 8 * Math.sqrt(i) * 5
+      await page.mouse.click(width / 2 + Math.cos(angle) * r, height / 2 + Math.sin(angle) * r)
+      await page.waitForTimeout(150)
+      started = /add bends/.test(await hint())
+    }
+    assert(started, 'no junction to start from')
+    // A bend, then try finishing (a second click on the same spot) until it lands on a junction.
+    await page.mouse.click(width / 2 + 120, height / 2 - 90)
+    let finished = false
+    for (let i = 0; i < 40 && !finished; i++) {
+      const angle = i * 2.4
+      const r = 8 * Math.sqrt(i) * 5
+      const x = width / 2 + 260 + Math.cos(angle) * r
+      const y = height / 2 + 40 + Math.sin(angle) * r
+      await page.mouse.click(x, y)
+      await page.waitForTimeout(120)
+      await page.mouse.click(x, y)
+      await page.waitForTimeout(250)
+      finished = Boolean(await page.$('.edit-list li:has-text("New main road")'))
+      if (!finished) await page.keyboard.press('Backspace')
+    }
+    assert(finished, 'the road could not be finished on a junction')
+    const detail = await page.$eval('.edit-list li', (e) => e.textContent)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(2500)
+    await shot(page, 'road-added')
+    await page.click('.restore-button')
+    await page.waitForSelector('text=No changes yet', { timeout: 10_000 })
+    return detail.replace(/×$/, '').trim()
+  })
+
   await step('click a vehicle to follow it, Escape to stop', async () => {
     const hit = await searchMap(page, async () => Boolean(await page.$('.follow-card')), { click: true, tries: 60 })
     assert(hit, 'no vehicle could be clicked near the centre')
