@@ -21,6 +21,7 @@ Everything runs in the browser as a static site. There is no backend.
 ### Map
 
 - 3D map of the whole Gooi region, with extruded buildings from OpenStreetMap
+- **Cinematic flight:** the **Cinematic** button in the title bar asks for a time of day and the weather, then flies the camera slowly through the region, from the Gooimeer to Huizen, a busy crossing, the A27, Laren, Naarden, Bussum and Hilversum station, with letterbox bars and a caption per place. It loops; any key, the Exit button or moving the map stops it.
 - **A short guided tour** on the first visit (seven steps, each pointing at the part of the screen it's about); the ? button under the camera controls starts it again
 - **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date (or the chosen season). Headlights come on after dusk. The layer panel can also force Day or Night.
 - **Map modes**, as in map apps: *Explore* (the plain map), *Driving* (busy streets coloured by congestion), *Transit* (bus and train routes and stops) and *Satellite* (aerial photos). They sit at the top of the map panel; the individual layer switches still work underneath.

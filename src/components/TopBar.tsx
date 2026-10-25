@@ -1,6 +1,7 @@
 import { PLACES } from '../data/places'
 import { flyToView } from '../features/map/camera'
 import { useMapInstance } from '../hooks/useMapInstance'
+import { CinematicButton } from './Cinematic'
 import { SearchBox } from './SearchBox'
 
 export function TopBar() {
@@ -14,6 +15,7 @@ export function TopBar() {
           <h1>Gooi Digital Twin</h1>
           <p>Gooi region · Noord-Holland</p>
         </div>
+        <CinematicButton />
       </div>
       <SearchBox />
       <nav className="places" aria-label="Places">

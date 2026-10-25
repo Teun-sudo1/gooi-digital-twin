@@ -239,6 +239,26 @@ async function desktop(browser, url) {
     return `${value}%`
   })
 
+  await step('cinematic flight: choose time and weather, fly, and stop with a key', async () => {
+    await page.click('.cinematic-button')
+    await page.waitForSelector('.cinematic-setup')
+    await page.click('.cinematic-options label:has-text("Evening rush")')
+    await page.click('.cinematic-options label:has-text("Rain")')
+    await page.click('.cinematic-start')
+    await page.waitForSelector('.cinematic-caption', { timeout: 10_000 })
+    await page.waitForSelector('.weather-overlay.weather-rain')
+    assert((await page.$eval('.sim-bar', (e) => getComputedStyle(e).display)) === 'none', 'the panels stayed visible')
+    await page.waitForTimeout(12_000)
+    await shot(page, 'cinematic')
+    const place = await page.$eval('.cinematic-caption strong', (e) => e.textContent)
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(600)
+    assert(!(await page.$('.cinematic-overlay')), 'Escape did not stop the flight')
+    assert((await page.$eval('.sim-bar', (e) => getComputedStyle(e).display)) !== 'none', 'the panels did not come back')
+    await page.selectOption('#weather-select', 'live').catch(() => {})
+    return place
+  })
+
   // Street level for the road tools, following and frame rate.
   await page.goto(url + STREET_VIEW)
   await page.waitForFunction(() => document.querySelector('.sim-time')?.textContent !== '--:--', null, { timeout: 90_000 })

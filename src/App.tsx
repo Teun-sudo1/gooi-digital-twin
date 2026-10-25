@@ -1,4 +1,5 @@
 import { CameraControls } from './components/CameraControls'
+import { Cinematic } from './components/Cinematic'
 import { LayerPanel } from './components/LayerPanel'
 import { FollowCard } from './components/FollowCard'
 import { LightingController } from './components/LightingController'
@@ -22,6 +23,7 @@ import { useFollowVehicle } from './features/simulation/useFollowVehicle'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useTrafficSimulation } from './hooks/useTrafficSimulation'
+import { useAppStore } from './store/useAppStore'
 
 export default function App() {
   useTrafficSimulation()
@@ -33,9 +35,10 @@ export default function App() {
   useComparisonLayer()
 
   const mobile = useIsMobile()
+  const cinematic = useAppStore((s) => s.cinematic === 'playing')
 
   return (
-    <div className={`app ${mobile ? 'mobile' : ''}`}>
+    <div className={`app ${mobile ? 'mobile' : ''} ${cinematic ? 'cinematic' : ''}`}>
       <MapView />
       <WeatherOverlay />
       <div className="left-column">
@@ -57,6 +60,7 @@ export default function App() {
       <StatusOverlay />
       <LightingController />
       <Tour />
+      <Cinematic />
     </div>
   )
 }

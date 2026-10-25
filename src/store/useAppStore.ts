@@ -17,6 +17,8 @@ interface AppState {
   shortcutsOpen: boolean
   /** The guided tour (opens by itself on a first visit). */
   tourOpen: boolean
+  /** Cinematic mode: choosing the time and weather, or flying through the region. */
+  cinematic: 'setup' | 'playing' | null
   /** Follow the simulated sun, or force day or night. */
   lightingMode: LightingMode
   /** Drawn map or aerial photos. */
@@ -51,6 +53,7 @@ export const useAppStore = create<AppState>((set) => ({
   layerPanelOpen: typeof window === 'undefined' || (window.innerWidth > 640 && window.innerHeight > 1100),
   shortcutsOpen: false,
   tourOpen: false,
+  cinematic: null,
   lightingMode: 'auto',
   basemap: 'map',
   mapMode: 'explore',
