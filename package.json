@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
@@ -12,6 +13,8 @@
     "test": "vitest run",
     "check:coherence": "node scripts/check-coherence.mjs",
     "check:deep": "vitest run --config vitest.deep.config.ts",
+    "check:e2e": "node e2e/walkthrough.mjs",
+    "check:all": "npm run check && npm run check:deep && npm run check:e2e",
     "check": "tsc -b && oxlint && vitest run && node scripts/check-coherence.mjs",
     "fetch-osm": "node scripts/fetch-osm.mjs",
     "fetch-timetables": "node scripts/fetch-timetables.mjs",
@@ -33,6 +36,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "oxlint": "^1.88.0",
+    "playwright": "^1.64.1",
     "typescript": "~6.0.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"

@@ -134,11 +134,30 @@ npm run dev        # http://localhost:5173
 | `npm run dev` | Development server with hot reload |
 | `npm run build` | Type-check and build the static site into `dist/` |
 | `npm run preview` | Serve the production build at http://localhost:4173/gooi-digital-twin/ |
-| `npm test` | Unit tests: routing, traffic model, timetables, sun position |
+| `npm test` | Unit tests: routing, traffic model, lanes, traffic lights, timetables, sun position |
+| `npm run check` | Everything quick, before each commit: types, lint, tests, coherence |
+| `npm run check:deep` | Deep simulation analysis (about 2 min) |
+| `npm run check:e2e` | Browser walkthrough of the production build (about 1 min) |
+| `npm run check:all` | All three |
 | `npm run lint` / `npm run typecheck` | oxlint / TypeScript |
 | `npm run data` | Rebuild all data files (see below) |
 
 No API keys or environment variables are needed.
+
+## Checks
+
+Three levels, from quick to thorough. Git runs the first before every commit and the third before every push (hooks in `.githooks/`, switched on by `npm install`).
+
+1. **`npm run check`** (about 40 s): TypeScript, oxlint, the unit tests, and `scripts/check-coherence.mjs`, which checks that the project hangs together:
+   - the data files are complete and agree with each other (timetabled trips present, lane counts matching the street network, signals inside the region, licences recorded);
+   - every data file is loaded by the app and named in this README, and every data script is part of `npm run data`;
+   - this README's links exist, and it explains every layer switch that changes the simulation, every road tool and every keyboard shortcut;
+   - the guided tour points only at parts of the screen that exist;
+   - no secrets, environment files or oversized files are tracked.
+2. **`npm run check:deep`** (about 2 min): `checks/simulation-health.deep.ts` runs the whole region with buses for 30 simulated minutes in six situations (morning rush; with traffic lights; with one lane everywhere; evening rush in heavy rain; night; the busiest main road closed, compared with the original). Each must pass health rules: no vehicles inside each other, nobody stuck, car numbers near the demand, plausible speeds and delays, buses near the timetable. A report with all figures goes to `checks-output/simulation-health.md`.
+3. **`npm run check:e2e`** (about 1 min): `e2e/walkthrough.mjs` builds the site, serves it and uses it in Chromium as a visitor would: the tour from start to end, play/pause, time and speed, the day chart, every map mode and layer switch, traffic lights and lanes, tree opacity and weather, closing a road and restoring it, following a vehicle, moving with W A S D, search, frame rate, and the phone layout with its tabs. Any browser console error fails it. Screenshots and a report go to `e2e-output/`. Add `--url <address>` to walk through the published site instead.
+
+GitHub Actions also runs lint, the tests and the coherence check before every deployment.
 
 ## How it works
 
@@ -228,8 +247,8 @@ Every push to `main` runs [.github/workflows/deploy.yml](.github/workflows/deplo
 ```bash
 git status
 git add -A
-git commit -m "feat: describe the change"
-git push                 # publishes and redeploys
+git commit -m "feat: describe the change"   # runs npm run check first
+git push                 # runs the browser walkthrough, then publishes and redeploys
 ```
 
 Never commit `.env` files or credentials. The repository is public.

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Before every commit: types, lint, tests and the coherence check (about 40 s).
+# Skip once with `git commit --no-verify` (for work in progress on a branch only).
+echo "pre-commit: npm run check"
+npm run --silent check

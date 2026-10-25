@@ -1,0 +1,5 @@
+#!/bin/sh
+# Before every push: walk through the production build in a browser (about a minute).
+# Pushes to main deploy the site, so this must pass there.
+echo "pre-push: npm run check:e2e"
+npm run --silent check:e2e

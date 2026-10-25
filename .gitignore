@@ -33,3 +33,4 @@ playwright-report
 test-results
 scripts/.cache
 checks-output
+e2e-output
