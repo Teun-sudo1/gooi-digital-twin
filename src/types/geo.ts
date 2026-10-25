@@ -25,6 +25,7 @@ export type LayerGroupId =
   | 'traffic'
   | 'transit'
   | 'transitRoutes'
+  | 'streetOutlines'
   | 'trees'
   | 'streetLights'
   | 'trafficLights'

@@ -139,12 +139,12 @@ interface Mesh {
 }
 
 /**
- * How much larger than life agents are drawn: modestly at street level, more
- * when zoomed out so they stay visible. Trains keep their true length (their
- * carriages are spaced to scale).
+ * How much larger than life agents are drawn: true size at street level, where
+ * the street outlines are to scale too, and larger when zoomed out so they stay
+ * visible. Trains keep their true length (their carriages are spaced to scale).
  */
 function exaggeration(zoom: number) {
-  return Math.min(7, Math.max(1.5, 1.5 * 2 ** ((17 - zoom) * 0.65)))
+  return Math.min(7, Math.max(1, 2 ** ((17.5 - zoom) * 0.65)))
 }
 
 /**

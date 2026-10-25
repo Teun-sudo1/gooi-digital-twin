@@ -10,6 +10,7 @@ export const LAYER_GROUPS: LayerGroup[] = [
   { id: 'transitRoutes', label: 'Transit routes & stops', layerIds: ['transit-routes', 'transit-stops'] },
   { id: 'buildings', label: '3D buildings', layerIds: ['buildings-3d'] },
   // Drawn by the scenery layer (src/features/scenery), which follows these toggles itself.
+  { id: 'streetOutlines', label: 'Street outlines', layerIds: ['bgt-verge', 'bgt-footway', 'bgt-parking', 'bgt-cycleway', 'bgt-carriageway'] },
   { id: 'trees', label: 'Trees', layerIds: [] },
   { id: 'streetLights', label: 'Street lighting', layerIds: [] },
   // Also switches the lights off in the simulation: junctions then use the right-of-way rules.
@@ -57,6 +58,7 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
   transit: true,
   // Explore mode: congestion and transit routes come with the Driving and Transit modes.
   transitRoutes: false,
+  streetOutlines: true,
   trees: true,
   streetLights: true,
   trafficLights: false,
@@ -65,7 +67,7 @@ export const DEFAULT_VISIBILITY: LayerVisibility = {
 }
 
 /** Groups the aerial photos replace: drawing them would cover the photo. */
-const COVERED_BY_AERIAL = new Set<LayerGroupId>(['water', 'green', 'landuse'])
+const COVERED_BY_AERIAL = new Set<LayerGroupId>(['water', 'green', 'landuse', 'streetOutlines'])
 
 export type Basemap = 'map' | 'aerial'
 

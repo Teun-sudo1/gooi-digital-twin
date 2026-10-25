@@ -37,8 +37,11 @@ export interface Palette {
   motorwayCasing: string
   /** Lane lines on multi-lane roads. */
   laneMarking: string
-  /** Cycle paths added in the road changes (red asphalt, as in the Netherlands). */
+  /** Cycle paths (red asphalt, as in the Netherlands). */
   cycleway: string
+  /** Pavements and squares, and parking spaces, in the street outlines. */
+  footway: string
+  parking: string
   path: string
   rail: string
   label: string
@@ -74,6 +77,8 @@ export const DAY: Palette = {
   motorwayCasing: '#d09d4a',
   laneMarking: '#9aa3ae',
   cycleway: '#d9a29a',
+  footway: '#e3e6ea',
+  parking: '#d9dde3',
   path: '#c2c8d0',
   rail: '#98a1ab',
   label: '#353d4a',
@@ -108,6 +113,8 @@ export const NIGHT: Palette = {
   motorwayCasing: '#2a2016',
   laneMarking: '#7d8896',
   cycleway: '#5a3a36',
+  footway: '#1a2029',
+  parking: '#1d242e',
   path: '#2a3340',
   rail: '#47505d',
   label: '#a9b4c2',
@@ -187,6 +194,19 @@ const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel']
 
 /** GeoJSON source of road surfaces and lane lines on multi-lane roads (filled by the simulation). */
 export const LANES = 'lane-markings'
+
+/**
+ * Street outlines from the BGT (Basisregistratie Grootschalige Topografie):
+ * the measured shapes of carriageways, cycle paths, pavements, parking and
+ * verges, served by PDOK as vector tiles (zoom 17 only, so shown from zoom 17).
+ */
+export const BGT = 'bgt'
+/** Carriageways and other surfaces cars drive on. */
+const CARRIAGEWAY = ['rijbaan autosnelweg', 'rijbaan autoweg', 'rijbaan regionale weg', 'rijbaan lokale weg', 'transitie', 'OV-baan', 'overweg', 'inrit', 'woonerf']
+const FOOTWAY = ['voetpad', 'voetgangersgebied', 'voetpad op trap', 'ruiterpad']
+/** Above ground: tunnels are left out. */
+const notUnderground: ExpressionSpecification = ['>=', ['to-number', ['get', 'relatieve_hoogteligging'], 0], 0]
+const functie = (values: string[]): ExpressionSpecification => ['match', ['get', 'functie'], values, true, false]
 
 /** GeoJSON source of roads added and removed in the road changes (filled by the scenario editor). */
 export const NEW_ROADS = 'scenario-roads'
@@ -350,8 +370,55 @@ function buildLayers(color: Palette): LayerSpecification[] {
       paint: { 'line-color': color.motorway, 'line-width': width(1, 18), 'line-opacity': 0.85 },
     },
 
-    // Roads removed in the road changes are covered with the ground colour, at the width the
-    // base map draws them; roads added are drawn at their true width.
+    // Street outlines (BGT), over the base map's road lines, from street level.
+    {
+      id: 'bgt-verge',
+      type: 'fill',
+      source: BGT,
+      'source-layer': 'ondersteunendwegdeel',
+      minzoom: 17,
+      filter: ['all', notUnderground, functie(['berm', 'verkeerseiland'])],
+      paint: { 'fill-color': color.grass },
+    },
+    {
+      id: 'bgt-footway',
+      type: 'fill',
+      source: BGT,
+      'source-layer': 'wegdeel',
+      minzoom: 17,
+      filter: ['all', notUnderground, functie(FOOTWAY)],
+      paint: { 'fill-color': color.footway },
+    },
+    {
+      id: 'bgt-parking',
+      type: 'fill',
+      source: BGT,
+      'source-layer': 'wegdeel',
+      minzoom: 17,
+      filter: ['all', notUnderground, functie(['parkeervlak'])],
+      paint: { 'fill-color': color.parking },
+    },
+    {
+      id: 'bgt-cycleway',
+      type: 'fill',
+      source: BGT,
+      'source-layer': 'wegdeel',
+      minzoom: 17,
+      filter: ['all', notUnderground, functie(['fietspad'])],
+      paint: { 'fill-color': color.cycleway },
+    },
+    {
+      id: 'bgt-carriageway',
+      type: 'fill',
+      source: BGT,
+      'source-layer': 'wegdeel',
+      minzoom: 17,
+      filter: ['all', notUnderground, functie(CARRIAGEWAY)],
+      paint: { 'fill-color': color.roadMajor, 'fill-outline-color': color.roadMajorCasing },
+    },
+
+    // Roads removed in the road changes are covered with the ground colour; roads added
+    // are drawn at their true width.
     {
       id: 'removed-road-mask',
       type: 'line',
@@ -360,15 +427,7 @@ function buildLayers(color: Palette): LayerSpecification[] {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': color.background,
-        'line-width': [
-          'interpolate',
-          ['exponential', 1.6],
-          ['zoom'],
-          10,
-          ['match', ['get', 'size'], 'motorway', 2.4, 'major', 1.8, 'path', 1, 0.9],
-          18,
-          ['match', ['get', 'size'], 'motorway', 26, 'major', 22, 'path', 5, 14],
-        ],
+        'line-width': metres(['match', ['get', 'size'], 'motorway', 16, 'major', 14, 'path', 4, 9]),
       },
     },
     {
@@ -400,6 +459,8 @@ function buildLayers(color: Palette): LayerSpecification[] {
       type: 'line',
       source: LANES,
       minzoom: 15,
+      // From zoom 17 the street outlines show the real surface.
+      maxzoom: 17,
       filter: ['==', ['get', 'kind'], 'surface'],
       layout: { 'line-cap': 'butt', 'line-join': 'round' },
       paint: {
@@ -634,6 +695,13 @@ export function buildStyle(palette: Palette): StyleSpecification {
       },
       [LANES]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [NEW_ROADS]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      [BGT]: {
+        type: 'vector',
+        tiles: ['https://api.pdok.nl/kadaster/bgt/ogc/v1/tiles/WebMercatorQuad/{z}/{y}/{x}?f=mvt'],
+        minzoom: 17,
+        maxzoom: 17,
+        attribution: 'Street outlines: BGT © Kadaster (CC0)',
+      },
       [AERIAL]: {
         type: 'raster',
         // PDOK Luchtfoto: the latest national aerial photography, open data.

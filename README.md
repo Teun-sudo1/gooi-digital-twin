@@ -27,6 +27,7 @@ Everything runs in the browser as a static site. There is no backend.
 - **Aerial photos:** the *Satellite* mode shows the latest national aerial photography (PDOK Luchtfoto). Roads, labels and the simulation stay on top, and the photos dim at night.
 - **Weather and seasons:** *Live* weather (from Open-Meteo), or choose dry, rain, heavy rain, snow or fog. Rain and snow fall over the map, and the weather changes travel: rain moves cyclists into cars and buses and slows everyone down. The season (today's, or one you choose) colours the trees, from spring blossom to autumn leaves and bare winter branches, tints parks and woods, and sets the sun's path, so winter evenings are dark early.
 - Roads, rail, water, forests, parks and Dutch place and street names
+- **Street outlines** from street level (zoom 17): the measured shapes of carriageways, red cycle paths, pavements, parking spaces, verges and traffic islands from the BGT, so streets have their real width and match the aerial photos. The **Street outlines** layer switch turns them off.
 - **Trees:** (with an opacity slider in the Layers panel to see streets and traffic underneath) about 90,000 street and park trees at their real positions: the trees and tree rows mapped in OpenStreetMap (9,000+) plus the trees the municipalities record in the BGT (81,000+), and the Gooi's forests and woods filled with oaks, beeches, pines and spruces inside their real OSM outlines (the positions of individual forest trees are illustrative)
 - **Street lighting:** lamp posts along lit streets, with warm pools of light on the road after dark; from far away the towns glow. About 150 lamps are mapped in OSM; the other ~34,000 are placed by rule (see [limitations](#known-limitations))
 - Layer toggles, including **Transit routes & stops**, which only changes the map display: buses and trains keep running
@@ -44,7 +45,7 @@ Everything runs in the browser as a static site. There is no backend.
 
 ### Simulated traffic
 
-- **Every agent is a 3D model** from street level up to zoom 13.5: cars (with glazed cabins, wheels, head- and brake lights), vans, trucks, buses in their line colours, NS train carriages, cyclists and pedestrians. They're drawn in a custom WebGL layer that shares depth with the 3D buildings. Agents are drawn larger than life (1.5× at street level, more when zoomed out), and further out they switch to flat icons.
+- **Every agent is a 3D model** from street level up to zoom 13.5: cars (with glazed cabins, wheels, head- and brake lights), vans, trucks, buses in their line colours, NS train carriages, cyclists and pedestrians. They're drawn in a custom WebGL layer that shares depth with the 3D buildings. Agents are drawn at true size from street level (zoom 17.5), so they fit the street outlines, and larger when zoomed out so they stay visible; further out they switch to flat icons.
 - **Cars** of five types (hatchback, sedan, SUV, van, truck), each with its own size, colours, acceleration and top speed. Brake lights show when a car slows or stops. Cars keep a safe braking distance to the vehicle ahead (looking past short junction pieces), take turns when two streets merge, and never appear on top of each other.
 - **Where trips go:** trips start at homes in proportion to each neighbourhood's population and go to destinations in proportion to its businesses (CBS figures for 2024), with about 15% of trips leaving the region. So Hilversum's centre and business parks attract commuters, and residential areas send them out.
 - **Congestion map** (Driving mode): streets where cars are held up (below 40% of the limit for more than 10 s, over at least 12% of their time) are coloured yellow, orange or red; free-flowing streets stay uncoloured.
@@ -190,6 +191,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, 
 | Street network, bus and train routes and stops | OpenStreetMap contributors, via the [Overpass API](https://overpass-api.de/) | ODbL 1.0 |
 | Lanes per direction | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-lanes.mjs`) | ODbL 1.0 |
 | Traffic signal positions | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-signals.mjs`) | ODbL 1.0 |
+| Street outlines (carriageways, cycle paths, pavements, verges) | BGT, as vector tiles from the PDOK OGC API, loaded live from zoom 17 | CC0 1.0 |
 | Street and park trees | BGT (Basisregistratie Grootschalige Topografie), vegetation points of type *boom*, via the PDOK OGC API (`scripts/fetch-scenery.mjs`) | CC0 1.0 |
 | Trees, forests, street lamps | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-scenery.mjs`) | ODbL 1.0 |
 | Population and businesses per neighbourhood | [CBS Kerncijfers wijken en buurten 2024](https://www.cbs.nl/), via PDOK (`scripts/fetch-demand.mjs`) | CC BY 4.0 |
