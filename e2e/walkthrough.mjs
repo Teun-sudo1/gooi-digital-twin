@@ -219,8 +219,9 @@ async function desktop(browser, url) {
       await page.waitForTimeout(2500)
       await toggle.click()
     }
+    // At 20× the clock (hours:minutes) moves a minute every 3 s.
     const before = await clockText(page)
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(4000)
     assert(before !== (await clockText(page)), 'the simulation stopped')
   })
 
