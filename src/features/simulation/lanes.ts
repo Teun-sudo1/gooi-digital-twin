@@ -1,5 +1,5 @@
-import { Mode, SegmentFlag } from '../../types/simulation'
-import { MODE_BIT, type Network } from './network'
+import { SegmentFlag } from '../../types/simulation'
+import type { Network } from './network'
 
 /*
  * Lanes per direction for car traffic. Counts come from OpenStreetMap where
@@ -25,15 +25,17 @@ function assumedLanes(cls: string, oneway: boolean) {
 
 /** Fills `net.edgeLanes` from the mapped counts (or with ones when switched off). */
 export function applyLanes(net: Network, file: LanesFile | null, enabled: boolean) {
-  const car = MODE_BIT[Mode.Car]
   for (let e = 0; e < net.edgeCount; e++) {
     const s = net.edgeSeg[e]
-    if (!enabled || !(net.edgeModes[e] & car) || s >= net.segmentCount) {
+    const flags = s < net.segmentCount ? net.segFlags[s] : 0
+    // By the street as mapped, not its current access: a street closed in a scenario keeps
+    // its lanes, so the cars still on it don't end up in one.
+    const mappedForCars = flags & (net.edgeRev[e] ? SegmentFlag.CarBackward : SegmentFlag.CarForward)
+    if (!enabled || !mappedForCars) {
       net.edgeLanes[e] = 1
       continue
     }
     const tagged = file?.ways[String(net.segWay[s])]
-    const flags = net.segFlags[s]
     const oneway = ((flags & SegmentFlag.CarForward) !== 0) !== ((flags & SegmentFlag.CarBackward) !== 0)
     const lanes = (tagged ? tagged[net.edgeRev[e]] : 0) || assumedLanes(net.classes[net.segClass[s]], oneway)
     net.edgeLanes[e] = Math.max(1, Math.min(MAX_LANES, lanes))

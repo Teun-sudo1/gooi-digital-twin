@@ -104,6 +104,7 @@ Panels move into a dock at the bottom: the simulation controls with tabs for *St
 | --- | --- |
 | `W` `A` `S` `D` (hold) | Move forward / left / back / right (`Shift` for faster) |
 | `Q` / `E` (hold) | Rotate left / right |
+| `Shift` + arrow keys | Rotate and tilt (with the map focused) |
 | `N` | Face north |
 | `T` | Toggle 2D / 3D |
 | `H` | Reset view to the region |
