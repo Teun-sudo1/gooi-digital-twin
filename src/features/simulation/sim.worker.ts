@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import {
   AGENT_STRIDE,
+  Mode,
   type Comparison,
   type ComparisonSide,
   type DemandFile,
@@ -23,7 +24,8 @@ import {
   type ScenarioNetwork,
 } from '../scenarios/scenarioNetwork'
 import { BusFleet, matchLines, type BusMeasures } from './buses'
-import { fetchJson, toLngLat, type Network } from './network'
+import { fetchJson, fromLngLat, MODE_BIT, toLngLat, type Network } from './network'
+import { findRoute, type Route } from './routing'
 import { applyLanes, laneMarkings, readRoadGeometry, type LaneSources, type LanesFile, type RoadGeometry, type RoadGeometryFile } from './lanes'
 import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
@@ -366,6 +368,52 @@ function postLaneMarkings() {
   })
 }
 
+/** The junction nearest to a point (within 400 m) where cars can drive off, or -1. */
+function nearestCarNode(net: Network, lng: number, lat: number) {
+  const [x, y] = fromLngLat(net.projection, lng, lat)
+  let best = -1
+  let bestD = 400
+  for (let n = 0; n < net.nodeCount; n++) {
+    const d = Math.hypot(net.nodeX[n] - x, net.nodeY[n] - y)
+    if (d >= bestD) continue
+    for (let k = net.outStart[n]; k < net.outStart[n + 1]; k++) {
+      if (net.edgeModes[net.outEdges[k]] & MODE_BIT[Mode.Car]) {
+        bestD = d
+        best = n
+        break
+      }
+    }
+  }
+  return best
+}
+
+/** Starts a car on the fastest route through the waypoints; returns its id, or null. */
+function drive(waypoints: unknown): number | null {
+  if (!main || !Array.isArray(waypoints) || waypoints.length < 2 || waypoints.length > 30) return null
+  const net = main.traffic.net
+  const nodes: number[] = []
+  for (const p of waypoints) {
+    if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
+    const node = nearestCarNode(net, p[0], p[1])
+    if (node < 0) return null
+    nodes.push(node)
+  }
+  const legs: Route[] = []
+  for (let i = 1; i < nodes.length; i++) {
+    if (nodes[i] === nodes[i - 1]) continue
+    const leg = findRoute(net, Mode.Car, nodes[i - 1], nodes[i])
+    if (!leg) return null
+    legs.push(leg)
+  }
+  if (!legs.length) return null
+  const route: Route = {
+    edges: Int32Array.from(legs.flatMap((l) => [...l.edges])),
+    lengthMeters: legs.reduce((sum, l) => sum + l.lengthMeters, 0),
+    freeFlowSeconds: legs.reduce((sum, l) => sum + l.freeFlowSeconds, 0),
+  }
+  return main.traffic.addCar(route)
+}
+
 function pick(message: Extract<ToWorker, { type: 'pick' }>) {
   if (!scenario) return
   const [lng, lat] = message.lngLat
@@ -408,6 +456,9 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'pick':
       pick(message)
+      break
+    case 'drive':
+      post({ type: 'drive', id: message.id, car: drive(message.waypoints) })
       break
     case 'weather':
       if (main) for (const run of runs()) run.traffic.weather = { ...message.effects }

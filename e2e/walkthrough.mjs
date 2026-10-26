@@ -239,9 +239,29 @@ async function desktop(browser, url) {
     return `${value}%`
   })
 
+  await step('cinematic drive: a car is followed through the towns, with street captions', async () => {
+    await page.click('.cinematic-button')
+    await page.waitForSelector('.cinematic-setup')
+    await page.click('.cinematic-options label:has-text("Follow a car")')
+    await page.click('.cinematic-options label:has-text("Midday")')
+    await page.click('.cinematic-start')
+    // Flying down to the start, then riding along: the caption names a town and a speed.
+    await page.waitForFunction(() => /km\/h/.test(document.querySelector('.cinematic-caption')?.textContent ?? ''), null, { timeout: 30_000 })
+    const first = await page.evaluate(() => location.hash)
+    await page.waitForTimeout(6000)
+    assert(first !== (await page.evaluate(() => location.hash)), 'the camera did not follow the car')
+    await shot(page, 'cinematic-drive')
+    const caption = await page.$eval('.cinematic-caption', (e) => e.innerText.replace(/\n/g, ' · '))
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(600)
+    assert(!(await page.$('.cinematic-overlay')), 'Escape did not stop the drive')
+    return caption
+  })
+
   await step('cinematic flight: choose time and weather, fly, and stop with a key', async () => {
     await page.click('.cinematic-button')
     await page.waitForSelector('.cinematic-setup')
+    await page.click('.cinematic-options label:has-text("Fly over")')
     await page.click('.cinematic-options label:has-text("Evening rush")')
     await page.click('.cinematic-options label:has-text("Rain")')
     await page.click('.cinematic-start')

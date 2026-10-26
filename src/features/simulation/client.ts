@@ -118,6 +118,7 @@ export class SimulationClient {
   private congestionGeometry = new Map<number, [number, number][]>()
   private chase = false
   private picks = new Map<number, (result: PickResult) => void>()
+  private drives = new Map<number, (car: number | null) => void>()
   private nextPick = 1
 
   constructor(map: MapLibreMap) {
@@ -192,6 +193,14 @@ export class SimulationClient {
     const id = this.nextPick++
     this.post({ type: 'pick', id, target, lngLat, radius, mask })
     return new Promise((resolve) => this.picks.set(id, resolve))
+  }
+
+  /** Starts a car on a route through the waypoints (lng/lat); resolves to its id to follow, or null. */
+  drive(waypoints: [number, number][]): Promise<number | null> {
+    if (!this.projection) return Promise.resolve(null)
+    const id = this.nextPick++
+    this.post({ type: 'drive', id, waypoints })
+    return new Promise((resolve) => this.drives.set(id, resolve))
   }
 
   /** Nearest vehicle to a point within `radius` metres (from the latest frame), or null. */
@@ -324,6 +333,10 @@ export class SimulationClient {
         this.picks.get(message.id)?.({ segment: message.segment, junction: message.junction })
         this.picks.delete(message.id)
         break
+      case 'drive':
+        this.drives.get(message.id)?.(message.car)
+        this.drives.delete(message.id)
+        break
       case 'frame':
         this.signalStates = message.signals
         this.lastAgents = message.agents
@@ -441,10 +454,9 @@ export class SimulationClient {
         const o = i * AGENT_STRIDE
         if (data[o + 6] !== this.follow) continue
         const [lng, lat] = toLngLat(this.projection, data[o], data[o + 1])
-        this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({
-          type: 'FeatureCollection',
-          features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: {} }],
-        })
+        // No ring around the car in the cinematic drive.
+        const ring = useAppStore.getState().cinematic === 'playing' ? [] : [{ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [lng, lat] }, properties: {} }]
+        this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({ type: 'FeatureCollection', features: ring })
         // Don't fight a zoom or rotate gesture in progress.
         if (this.map.isZooming() || this.map.isRotating()) return
         const center = this.map.getCenter()

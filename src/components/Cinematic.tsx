@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { WEATHER_LABELS, type WeatherSetting } from '../features/environment/environment'
-import { START_TIMES } from '../features/cinematic/cinematic'
+import { START_TIMES, type CinematicStyle } from '../features/cinematic/cinematic'
 import { useCinematic } from '../features/cinematic/useCinematic'
 import { useAppStore } from '../store/useAppStore'
 import { useSimulationStore } from '../store/useSimulationStore'
@@ -10,6 +10,7 @@ function CinematicSetup() {
   const current = useAppStore((s) => s.weatherSetting)
   const [time, setTime] = useState(1)
   const [weather, setWeather] = useState<WeatherSetting>(current)
+  const [style, setStyle] = useState<CinematicStyle>(useAppStore.getState().cinematicStyle)
   const start = useRef<HTMLButtonElement>(null)
 
   useEffect(() => start.current?.focus(), [])
@@ -21,18 +22,35 @@ function CinematicSetup() {
     if (controller) {
       if (clock !== null) controller.setClock(clock)
       controller.setFollow(null)
-      controller.setSpeed(1)
+      // The drive sets its own speed; the flight watches traffic at its normal pace.
+      if (style === 'fly') controller.setSpeed(1)
       controller.setPlaying(true)
     }
     // The sun follows the chosen time; panels and tours make way.
-    useAppStore.setState({ cinematic: 'playing', weatherSetting: weather, lightingMode: 'auto', tourOpen: false, shortcutsOpen: false })
+    useAppStore.setState({ cinematic: 'playing', cinematicStyle: style, weatherSetting: weather, lightingMode: 'auto', tourOpen: false, shortcutsOpen: false })
   }
 
   return (
     <div className="cinematic-backdrop" onKeyDown={(e) => e.key === 'Escape' && cancel()}>
       <section className="cinematic-setup panel" role="dialog" aria-modal="true" aria-labelledby="cinematic-title">
-        <h2 id="cinematic-title">Cinematic flight</h2>
-        <p>A slow flight through the Gooi, from the whole region down to its streets. Press any key or move the map to stop.</p>
+        <h2 id="cinematic-title">Cinematic mode</h2>
+        <p>Sit back and watch the Gooi. Press any key or move the map to stop.</p>
+        <fieldset>
+          <legend>Camera</legend>
+          <div className="cinematic-options">
+            {(
+              [
+                ['drive', 'Follow a car through every town'],
+                ['fly', 'Fly over the region'],
+              ] as const
+            ).map(([id, label]) => (
+              <label key={id} className={style === id ? 'active' : undefined}>
+                <input type="radio" name="cinematic-style" checked={style === id} onChange={() => setStyle(id)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <fieldset>
           <legend>Time of day</legend>
           <div className="cinematic-options">
@@ -60,7 +78,7 @@ function CinematicSetup() {
             Cancel
           </button>
           <button ref={start} className="cinematic-start" onClick={begin}>
-            Start flight
+            Start
           </button>
         </div>
       </section>
@@ -70,15 +88,15 @@ function CinematicSetup() {
 
 /** Letterbox bars, the place being shown, and a way out. */
 function CinematicOverlay() {
-  const shot = useCinematic()
+  const caption = useCinematic()
   return (
     <div className="cinematic-overlay" aria-live="polite">
       <div className="letterbox top" aria-hidden="true" />
       <div className="letterbox bottom" aria-hidden="true" />
-      {shot && (
-        <div className="cinematic-caption" key={shot.title + shot.subtitle}>
-          <strong>{shot.title}</strong>
-          <span>{shot.subtitle}</span>
+      {caption && (
+        <div className="cinematic-caption" key={caption.title}>
+          <strong>{caption.title}</strong>
+          <span>{caption.subtitle}</span>
         </div>
       )}
       <span className="cinematic-badge">Simulated traffic</span>
@@ -100,7 +118,7 @@ export function Cinematic() {
 export function CinematicButton() {
   const ready = useSimulationStore((s) => s.status === 'ready')
   return (
-    <button className="cinematic-button" disabled={!ready} onClick={() => useAppStore.setState({ cinematic: 'setup' })} title="Fly through the region">
+    <button className="cinematic-button" disabled={!ready} onClick={() => useAppStore.setState({ cinematic: 'setup' })} title="Watch the region: follow a car or fly over">
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <rect x="1.5" y="3.5" width="9" height="9" rx="1.5" />
         <path d="m10.5 7 4-2.5v7l-4-2.5" />

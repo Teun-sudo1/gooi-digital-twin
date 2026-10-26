@@ -270,6 +270,8 @@ export type ToWorker =
   | { type: 'stop'; line: number | null; stop: number }
   /** Find the street (or junction) nearest to a point, within `radius` metres. */
   | { type: 'pick'; id: number; target: 'segment' | 'junction'; lngLat: [number, number]; radius: number; mask: number }
+  /** Start a car on a route through these points (lng/lat), for the cinematic drive. */
+  | { type: 'drive'; id: number; waypoints: [number, number][] }
 
 /** Floats per agent in a frame: x, y, bearing, kind, colour, flags, id. */
 export const AGENT_STRIDE = 7
@@ -400,3 +402,5 @@ export type FromWorker =
   | { type: 'congestion'; segments: Int32Array; levels: Float32Array; geometry: { segment: number; coordinates: [number, number][] }[] }
   | { type: 'stats'; stats: SimulationStats }
   | { type: 'pick'; id: number; segment: SegmentInfo | null; junction: JunctionInfo | null }
+  /** The car started for a `drive` request (its id, to follow), or null when no route was found. */
+  | { type: 'drive'; id: number; car: number | null }

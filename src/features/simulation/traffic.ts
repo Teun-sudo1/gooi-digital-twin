@@ -942,6 +942,21 @@ export class TrafficModel {
     return Math.min(lane, this.net.edgeLanes[edge] - 1)
   }
 
+  /**
+   * Starts a car on a given route, in traffic like any other (the cinematic
+   * drive). Returns its id for following, or null when the start is full.
+   */
+  addCar(route: Route): number | null {
+    const lane = this.roomAtStart(Mode.Car, route.edges[0])
+    if (lane < 0) return null
+    this.launch(Mode.Car, route, false, false, lane)
+    const car = this.agents[this.agents.length - 1]
+    // A saloon keeping to the limit, so the drive is steady.
+    car.kind = Kind.Sedan
+    car.desired = 1
+    return car.id % ROAD_ID_LIMIT
+  }
+
   /** Whether a car fits on the start of an edge (or the traffic there is moving on). */
   private roomAfter(edge: number, a: Agent) {
     const rear = this.occupancy.get(queueKey(edge, this.laneOnto(edge, a.lane), Mode.Car))?.[0]

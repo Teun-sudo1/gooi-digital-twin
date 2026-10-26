@@ -1,11 +1,32 @@
 import type { Map as MapLibreMap } from 'maplibre-gl'
 
 /*
- * Cinematic mode: a slow camera flight through the Gooi, from the whole
- * region down to street level and back out. Each shot flies to a place,
- * then drifts around it while its caption shows. The flight loops until
- * the visitor stops it.
+ * Cinematic mode, in two styles:
+ * - drive: one car drives a loop through all the Gooi towns in ordinary
+ *   (simulated) traffic, and the camera follows it, turning with it;
+ * - fly: a slow camera flight from the whole region down to street level
+ *   and back out. Each shot flies to a place, then drifts around it.
+ * Both loop until the visitor stops them.
  */
+
+export type CinematicStyle = 'drive' | 'fly'
+
+/** The drive: a loop through every town, from and back to Hilversum (about 30 km). */
+export const DRIVE_WAYPOINTS: [number, number][] = [
+  [5.1745, 52.2245], // Hilversum
+  [5.2265, 52.2565], // Laren
+  [5.2585, 52.2545], // Eemnes
+  [5.2445, 52.2728], // Blaricum
+  [5.2405, 52.2992], // Huizen
+  [5.1622, 52.2958], // Naarden
+  [5.1625, 52.2745], // Bussum
+  [5.1745, 52.2245], // Hilversum
+]
+
+/** Simulated seconds per real second during the drive: a 30 km loop in about 12 minutes. */
+export const DRIVE_SPEED = 3
+/** Camera while following the car. */
+export const DRIVE_CAMERA = { zoom: 19, pitch: 70 }
 
 export interface Shot {
   title: string
