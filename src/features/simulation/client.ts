@@ -117,6 +117,10 @@ export class SimulationClient {
   private weather: WeatherEffects | null = null
   private congestionGeometry = new Map<number, [number, number][]>()
   private chase = false
+  /** Where the followed vehicle is (latest frame); the camera glides towards it every screen frame. */
+  private followTarget: { lng: number; lat: number; heading: number } | null = null
+  private cameraFrame = 0
+  private cameraTime = 0
   private picks = new Map<number, (result: PickResult) => void>()
   private drives = new Map<number, (car: number | null) => void>()
   private nextPick = 1
@@ -225,6 +229,7 @@ export class SimulationClient {
   /** Follow a vehicle with the camera (null stops). */
   setFollow(id: number | null) {
     this.follow = id
+    this.followTarget = null
     this.post({ type: 'follow', id })
     useSimulationStore.setState({ followId: id, followInfo: null })
     if (id === null) this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({ type: 'FeatureCollection', features: [] })
@@ -259,6 +264,7 @@ export class SimulationClient {
   dispose() {
     this.disposed = true
     this.unsubscribe()
+    cancelAnimationFrame(this.cameraFrame)
     this.worker.terminate()
     for (const resolve of this.picks.values()) resolve({ segment: null, junction: null })
     this.picks.clear()
@@ -457,22 +463,48 @@ export class SimulationClient {
         // No ring around the car in the cinematic drive.
         const ring = useAppStore.getState().cinematic === 'playing' ? [] : [{ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: [lng, lat] }, properties: {} }]
         this.map.getSource<GeoJSONSource>(FOLLOW_RING)?.setData({ type: 'FeatureCollection', features: ring })
-        // Don't fight a zoom or rotate gesture in progress.
-        if (this.map.isZooming() || this.map.isRotating()) return
-        const center = this.map.getCenter()
-        const k = 0.35
-        const camera: { center: [number, number]; bearing?: number } = {
-          center: [center.lng + (lng - center.lng) * k, center.lat + (lat - center.lat) * k],
+        this.followTarget = { lng, lat, heading: data[o + 2] }
+        if (!this.cameraFrame) {
+          this.cameraTime = performance.now()
+          this.cameraFrame = requestAnimationFrame(this.glide)
         }
-        if (this.chase) {
-          const bearing = this.map.getBearing()
-          const turn = ((((data[o + 2] - bearing) % 360) + 540) % 360) - 180
-          camera.bearing = bearing + turn * 0.12
-        }
-        this.map.jumpTo(camera)
         return
       }
     }
+  }
+
+  /**
+   * Eases the camera towards the followed vehicle on every screen frame, by
+   * time rather than per simulation frame, so it moves smoothly between
+   * frames. In the cinematic drive it eases slowly, smoothing over sharp
+   * braking and steering; otherwise it keeps up closely.
+   */
+  private glide = (now: number) => {
+    const target = this.followTarget
+    if (this.follow === null || !target || this.disposed) {
+      this.cameraFrame = 0
+      return
+    }
+    const dt = Math.min(0.1, (now - this.cameraTime) / 1000)
+    this.cameraTime = now
+    // Don't fight a zoom or rotate gesture in progress.
+    if (!this.map.isZooming() && !this.map.isRotating()) {
+      const cinematic = useAppStore.getState().cinematic === 'playing'
+      // Seconds for the camera to cover about two thirds of the way to the vehicle, and to turn with it.
+      const [move, turn] = cinematic ? [0.9, 2.2] : [0.1, 0.6]
+      const center = this.map.getCenter()
+      const a = 1 - Math.exp(-dt / move)
+      const camera: { center: [number, number]; bearing?: number } = {
+        center: [center.lng + (target.lng - center.lng) * a, center.lat + (target.lat - center.lat) * a],
+      }
+      if (this.chase) {
+        const bearing = this.map.getBearing()
+        const diff = ((((target.heading - bearing) % 360) + 540) % 360) - 180
+        camera.bearing = bearing + diff * (1 - Math.exp(-dt / turn))
+      }
+      this.map.jumpTo(camera)
+    }
+    this.cameraFrame = requestAnimationFrame(this.glide)
   }
 
   /** Line number badges above the 3D buses. */

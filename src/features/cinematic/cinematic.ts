@@ -23,8 +23,8 @@ export const DRIVE_WAYPOINTS: [number, number][] = [
   [5.1745, 52.2245], // Hilversum
 ]
 
-/** Simulated seconds per real second during the drive: a 30 km loop in about 12 minutes. */
-export const DRIVE_SPEED = 3
+/** Simulated seconds per real second during the drive: a 30 km loop in about 18 minutes. */
+export const DRIVE_SPEED = 2
 /** Camera while following the car. */
 export const DRIVE_CAMERA = { zoom: 19, pitch: 70 }
 
