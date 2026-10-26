@@ -15,7 +15,6 @@ import {
   type ToWorker,
   type TransitLineInfo,
 } from '../../types/simulation'
-import { LANES } from '../map/style'
 import { AgentLayer, INSTANCE_FLOATS, InstanceFlag, MODEL_MIN_ZOOM } from './agentLayer'
 import { agentIcon, CAR_COLOURS, CLOTHING_COLOURS, registerIcons } from './icons'
 import { fromLngLat, toLngLat } from './network'
@@ -321,12 +320,6 @@ export class SimulationClient {
         if (this.scenario.length) this.post({ type: 'scenario', interventions: this.scenario })
         if (this.weather) this.post({ type: 'weather', effects: this.weather })
         useSimulationStore.setState({ status: 'ready', lines: message.lines, timetableDate: message.timetableDate })
-        break
-      case 'laneMarkings':
-        this.map.getSource<GeoJSONSource>(LANES)?.setData({
-          type: 'FeatureCollection',
-          features: message.features.map(({ coordinates, ...properties }) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates }, properties })),
-        })
         break
       case 'error':
         console.error('[simulation]', message.message)

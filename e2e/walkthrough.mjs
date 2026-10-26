@@ -258,12 +258,16 @@ async function desktop(browser, url) {
     return caption
   })
 
-  await step('cinematic flight: choose time and weather, fly, and stop with a key', async () => {
+  await step('cinematic flight: choose time, weather, labels and trees, fly, and stop with a key', async () => {
     await page.click('.cinematic-button')
     await page.waitForSelector('.cinematic-setup')
     await page.click('.cinematic-options label:has-text("Fly over")')
     await page.click('.cinematic-options label:has-text("Evening rush")')
     await page.click('.cinematic-options label:has-text("Rain")')
+    await page.click('.cinematic-options label:has-text("Labels off")')
+    await page.focus('#cinematic-trees')
+    await page.keyboard.press('Home')
+    await shot(page, 'cinematic-setup')
     await page.click('.cinematic-start')
     await page.waitForSelector('.cinematic-caption', { timeout: 10_000 })
     await page.waitForSelector('.weather-overlay.weather-rain')
@@ -275,6 +279,9 @@ async function desktop(browser, url) {
     await page.waitForTimeout(600)
     assert(!(await page.$('.cinematic-overlay')), 'Escape did not stop the flight')
     assert((await page.$eval('.sim-bar', (e) => getComputedStyle(e).display)) !== 'none', 'the panels did not come back')
+    await openLayers(page)
+    assert(!(await page.locator('#layer-list label.toggle', { hasText: 'Labels' }).locator('input').isChecked()), 'the labels stayed on')
+    assert((await page.$eval('#tree-opacity', (e) => Number(e.value))) === 10, 'the tree opacity was not applied')
     await page.selectOption('#weather-select', 'live').catch(() => {})
     return place
   })

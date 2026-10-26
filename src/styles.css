@@ -2139,6 +2139,26 @@ kbd {
   outline-offset: 2px;
 }
 
+.cinematic-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.cinematic-range .range-value {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cinematic-range input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
 .cinematic-actions {
   display: flex;
   justify-content: flex-end;

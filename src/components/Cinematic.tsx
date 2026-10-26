@@ -5,9 +5,11 @@ import { useCinematic } from '../features/cinematic/useCinematic'
 import { useAppStore } from '../store/useAppStore'
 import { useSimulationStore } from '../store/useSimulationStore'
 
-/** Choose the time of day and the weather, then start the flight. */
+/** Choose the camera, time of day, weather, labels and trees, then start. */
 function CinematicSetup() {
   const current = useAppStore((s) => s.weatherSetting)
+  const [labels, setLabels] = useState(useAppStore.getState().layerVisibility.labels)
+  const [trees, setTrees] = useState(useAppStore.getState().treeOpacity)
   const [time, setTime] = useState(1)
   const [weather, setWeather] = useState<WeatherSetting>(current)
   const [style, setStyle] = useState<CinematicStyle>(useAppStore.getState().cinematicStyle)
@@ -27,7 +29,16 @@ function CinematicSetup() {
       controller.setPlaying(true)
     }
     // The sun follows the chosen time; panels and tours make way.
-    useAppStore.setState({ cinematic: 'playing', cinematicStyle: style, weatherSetting: weather, lightingMode: 'auto', tourOpen: false, shortcutsOpen: false })
+    useAppStore.setState((s) => ({
+      cinematic: 'playing',
+      cinematicStyle: style,
+      weatherSetting: weather,
+      lightingMode: 'auto',
+      tourOpen: false,
+      shortcutsOpen: false,
+      layerVisibility: { ...s.layerVisibility, labels },
+      treeOpacity: trees,
+    }))
   }
 
   return (
@@ -71,6 +82,29 @@ function CinematicSetup() {
                 {WEATHER_LABELS[w]}
               </label>
             ))}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Map</legend>
+          <div className="cinematic-options">
+            {(
+              [
+                [true, 'Labels on'],
+                [false, 'Labels off'],
+              ] as const
+            ).map(([on, label]) => (
+              <label key={label} className={labels === on ? 'active' : undefined}>
+                <input type="radio" name="cinematic-labels" checked={labels === on} onChange={() => setLabels(on)} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div className="cinematic-range">
+            <label htmlFor="cinematic-trees">Tree opacity</label>
+            <input id="cinematic-trees" type="range" min={10} max={100} step={5} value={Math.round(trees * 100)} onChange={(e) => setTrees(Number(e.target.value) / 100)} />
+            <output htmlFor="cinematic-trees" className="range-value">
+              {Math.round(trees * 100)}%
+            </output>
           </div>
         </fieldset>
         <div className="cinematic-actions">
