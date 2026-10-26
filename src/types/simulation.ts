@@ -272,6 +272,8 @@ export type ToWorker =
   | { type: 'pick'; id: number; target: 'segment' | 'junction'; lngLat: [number, number]; radius: number; mask: number }
   /** Start a car on a route through these points (lng/lat), for the cinematic drive. */
   | { type: 'drive'; id: number; waypoints: [number, number][] }
+  /** Pick a bus to ride along with, for the cinematic bus ride. */
+  | { type: 'ride'; id: number }
 
 /** Floats per agent in a frame: x, y, bearing, kind, colour, flags, id. */
 export const AGENT_STRIDE = 7
@@ -404,3 +406,5 @@ export type FromWorker =
   | { type: 'pick'; id: number; segment: SegmentInfo | null; junction: JunctionInfo | null }
   /** The car started for a `drive` request (its id, to follow), or null when no route was found. */
   | { type: 'drive'; id: number; car: number | null }
+  /** The bus picked for a `ride` request, or null when none is running. */
+  | { type: 'ride'; id: number; bus: { id: number; lngLat: [number, number] } | null }

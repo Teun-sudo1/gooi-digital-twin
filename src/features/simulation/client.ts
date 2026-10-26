@@ -123,6 +123,7 @@ export class SimulationClient {
   private cameraTime = 0
   private picks = new Map<number, (result: PickResult) => void>()
   private drives = new Map<number, (car: number | null) => void>()
+  private rides = new Map<number, (bus: { id: number; lngLat: [number, number] } | null) => void>()
   private nextPick = 1
 
   constructor(map: MapLibreMap) {
@@ -205,6 +206,14 @@ export class SimulationClient {
     const id = this.nextPick++
     this.post({ type: 'drive', id, waypoints })
     return new Promise((resolve) => this.drives.set(id, resolve))
+  }
+
+  /** A bus in service with a long way to go, to ride along with; resolves to its id and position, or null. */
+  ride(): Promise<{ id: number; lngLat: [number, number] } | null> {
+    if (!this.projection) return Promise.resolve(null)
+    const id = this.nextPick++
+    this.post({ type: 'ride', id })
+    return new Promise((resolve) => this.rides.set(id, resolve))
   }
 
   /** Nearest vehicle to a point within `radius` metres (from the latest frame), or null. */
@@ -342,6 +351,10 @@ export class SimulationClient {
       case 'drive':
         this.drives.get(message.id)?.(message.car)
         this.drives.delete(message.id)
+        break
+      case 'ride':
+        this.rides.get(message.id)?.(message.bus)
+        this.rides.delete(message.id)
         break
       case 'frame':
         this.signalStates = message.signals

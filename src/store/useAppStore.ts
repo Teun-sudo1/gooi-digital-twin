@@ -5,6 +5,7 @@ import { seasonOf, type LiveWeather, type Season, type SeasonSetting, type Weath
 import type { Basemap } from '../features/map/layers'
 import { MAP_MODES, type MapMode } from '../features/map/mapModes'
 import type { LightingMode } from '../features/map/lighting'
+import type { CinematicStyle } from '../features/cinematic/cinematic'
 import type { LayerGroupId, MapStatus } from '../types/geo'
 
 interface AppState {
@@ -19,7 +20,7 @@ interface AppState {
   tourOpen: boolean
   /** Cinematic mode: choosing the time and weather, or flying through the region. */
   cinematic: 'setup' | 'playing' | null
-  cinematicStyle: 'drive' | 'fly'
+  cinematicStyle: CinematicStyle
   /** Lofi music during cinematic mode. */
   cinematicMusic: boolean
   /** Follow the simulated sun, or force day or night. */

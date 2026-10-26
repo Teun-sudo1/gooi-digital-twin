@@ -286,6 +286,24 @@ async function desktop(browser, url) {
     return caption
   })
 
+  await step('cinematic bus ride: the camera rides along with a bus, naming its next stop', async () => {
+    await page.click('.cinematic-button')
+    await page.waitForSelector('.cinematic-setup')
+    await page.click('.cinematic-options label:has-text("Ride along with a bus")')
+    await page.click('.cinematic-options label:has-text("Midday")')
+    await page.click('.cinematic-start')
+    await page.waitForFunction(() => /^Bus /.test(document.querySelector('.cinematic-caption strong')?.textContent ?? ''), null, { timeout: 30_000 })
+    const first = await page.evaluate(() => location.hash)
+    await page.waitForTimeout(6000)
+    assert(first !== (await page.evaluate(() => location.hash)), 'the camera did not ride along')
+    await shot(page, 'cinematic-bus')
+    const caption = await page.$eval('.cinematic-caption', (e) => e.innerText.replace(/\n/g, ' · '))
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(600)
+    assert(!(await page.$('.cinematic-overlay')), 'Escape did not stop the ride')
+    return caption
+  })
+
   await step('cinematic flight: choose time, weather, labels and trees, fly, and stop with a key', async () => {
     await page.click('.cinematic-button')
     await page.waitForSelector('.cinematic-setup')

@@ -33,29 +33,59 @@ function townAt(map: MapLibreMap) {
 }
 
 /**
+ * Gets the camera ready to ride along: the simulation at the ride's speed and a
+ * chase camera with the vehicle low on the screen and the road ahead above it.
+ * Puts everything back when `signal` aborts.
+ */
+function chaseCamera(map: MapLibreMap, signal: AbortSignal) {
+  const store = useSimulationStore
+  const controller = store.getState().controller!
+  const previousSpeed = store.getState().speed
+  controller.setSpeed(DRIVE_SPEED)
+  controller.setPlaying(true)
+  map.setPadding({ top: Math.round(map.getContainer().clientHeight * 0.45), bottom: 0, left: 0, right: 0 })
+  signal.addEventListener('abort', () => {
+    map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 })
+    controller.setFollow(null)
+    controller.setChase(false)
+    controller.setSpeed(previousSpeed)
+  })
+}
+
+/** Flies down to `center`, then follows vehicle `id` until it is gone, captioning every second. */
+async function rideAlong(map: MapLibreMap, signal: AbortSignal, id: number, center: [number, number], caption: () => Caption | null, onCaption: (caption: Caption) => void) {
+  const controller = useSimulationStore.getState().controller!
+  await new Promise<void>((done) => {
+    map.once('moveend', () => done())
+    map.flyTo({ center, ...DRIVE_CAMERA, duration: 6000, essential: true })
+    signal.addEventListener('abort', () => done())
+  })
+  if (signal.aborted) return
+  controller.setFollow(id)
+  controller.setChase(true)
+  await new Promise<void>((done) => {
+    const timer = window.setInterval(() => {
+      if (useSimulationStore.getState().followGone || signal.aborted) {
+        window.clearInterval(timer)
+        done()
+        return
+      }
+      const next = caption()
+      if (next) onCaption(next)
+    }, 1000)
+    signal.addEventListener('abort', () => window.clearInterval(timer))
+  })
+}
+
+/**
  * The drive: start a car on the loop through the towns, fly the camera to it
  * and follow it; when it has done the loop, start another. Captions name the
  * town and the street it is on.
  */
 async function drive(map: MapLibreMap, signal: AbortSignal, onCaption: (caption: Caption) => void) {
-  const store = useSimulationStore
-  const controller = store.getState().controller
+  const controller = useSimulationStore.getState().controller
   if (!controller) return
-  const previousSpeed = store.getState().speed
-  controller.setSpeed(DRIVE_SPEED)
-  controller.setPlaying(true)
-  let timer = 0
-  // A chase camera: the car in the lower part of the screen, the road ahead above it.
-  map.setPadding({ top: Math.round(map.getContainer().clientHeight * 0.45), bottom: 0, left: 0, right: 0 })
-  const cleanup = () => {
-    map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 })
-    window.clearInterval(timer)
-    controller.setFollow(null)
-    controller.setChase(false)
-    controller.setSpeed(previousSpeed)
-  }
-  signal.addEventListener('abort', cleanup)
-
+  chaseCamera(map, signal)
   while (!signal.aborted) {
     onCaption({ title: 'Het Gooi', subtitle: 'A drive through every town, in simulated traffic' })
     // The start can be busy for a moment: try again until there's room.
@@ -65,30 +95,45 @@ async function drive(map: MapLibreMap, signal: AbortSignal, onCaption: (caption:
       if (car === null) await new Promise((r) => setTimeout(r, 500))
     }
     if (car === null || signal.aborted) return
-    // Fly down to the start, then ride along.
-    await new Promise<void>((done) => {
-      map.once('moveend', () => done())
-      map.flyTo({ center: DRIVE_WAYPOINTS[0], ...DRIVE_CAMERA, duration: 6000, essential: true })
-      signal.addEventListener('abort', () => done())
-    })
+    await rideAlong(map, signal, car, DRIVE_WAYPOINTS[0], () => {
+      const info = useSimulationStore.getState().followInfo
+      const street = info?.type === 'road' ? info.street : null
+      const speed = info?.type === 'road' ? `${Math.round(info.speedKmh)} km/h` : ''
+      return { title: townAt(map), subtitle: [street, speed].filter(Boolean).join(' · ') }
+    }, onCaption)
+  }
+}
+
+/**
+ * The bus ride: ride along with a bus on its timetabled trip, stop by stop;
+ * when its trip ends, change to another bus. Captions name the line, the
+ * next stop and the town.
+ */
+async function rideBus(map: MapLibreMap, signal: AbortSignal, onCaption: (caption: Caption) => void) {
+  const controller = useSimulationStore.getState().controller
+  if (!controller) return
+  chaseCamera(map, signal)
+  while (!signal.aborted) {
+    const bus = await controller.ride()
     if (signal.aborted) return
-    controller.setFollow(car)
-    controller.setChase(true)
-    // Until the car has finished the loop (or left the network).
-    await new Promise<void>((done) => {
-      window.clearInterval(timer)
-      timer = window.setInterval(() => {
-        const { followGone, followInfo } = store.getState()
-        if (followGone || signal.aborted) {
-          window.clearInterval(timer)
-          done()
-          return
-        }
-        const street = followInfo?.type === 'road' ? followInfo.street : null
-        const speed = followInfo?.type === 'road' ? `${Math.round(followInfo.speedKmh)} km/h` : ''
-        onCaption({ title: townAt(map), subtitle: [street, speed].filter(Boolean).join(' · ') })
-      }, 1000)
-    })
+    if (!bus) {
+      // At night there may be no bus with a few stops to go: wait for the next one.
+      onCaption({ title: 'Waiting for a bus', subtitle: 'No bus in service has a long way to go right now' })
+      await new Promise((r) => setTimeout(r, 3000))
+      continue
+    }
+    onCaption({ title: 'Het Gooi', subtitle: 'Riding along with a bus, in simulated traffic' })
+    await rideAlong(map, signal, bus.id, bus.lngLat, () => {
+      const { followInfo: info, lines } = useSimulationStore.getState()
+      if (info?.type !== 'bus') return null
+      const line = lines[info.line]
+      const late = info.delayMinutes >= 1 ? `${Math.round(info.delayMinutes)} min late` : null
+      const next = info.nextStop ? `Next stop ${info.nextStop}` : null
+      return {
+        title: `Bus ${line?.ref ?? ''}${line?.to ? ` to ${line.to}` : ''}`,
+        subtitle: [townAt(map), next, `${Math.round(info.speedKmh)} km/h`, late].filter(Boolean).join(' · '),
+      }
+    }, onCaption)
   }
 }
 
@@ -136,6 +181,7 @@ export function useCinematic(): Caption | null {
     map.on('movestart', onMove)
     window.addEventListener('keydown', onKey, { capture: true })
     if (style === 'drive') void drive(map, controller.signal, setCaption)
+    else if (style === 'ride') void rideBus(map, controller.signal, setCaption)
     else void flyTour(map, controller.signal, (shot) => setCaption({ title: shot.title, subtitle: shot.subtitle }))
     return () => {
       controller.abort()

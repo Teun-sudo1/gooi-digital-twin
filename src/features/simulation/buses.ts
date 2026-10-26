@@ -748,6 +748,18 @@ export class BusFleet {
     }
   }
 
+  /** A bus to ride along with: one of those with the longest way still to go (at least 4 stops) and where it is, or null. */
+  pickRide(): { id: number; x: number; y: number } | null {
+    const candidates = this.buses
+      .filter((b) => !b.detour && b.stops.length - b.stopIdx >= 4)
+      .sort((a, b) => b.end - b.d - (a.end - a.d))
+      .slice(0, 5)
+    if (!candidates.length) return null
+    const bus = candidates[Math.floor(Math.random() * candidates.length)]
+    this.transit.pointAt(bus.line, Math.min(bus.d, bus.line.length), this.point)
+    return { id: bus.id, x: this.point.x, y: this.point.y }
+  }
+
   inspect(id: number): FollowInfo | null {
     const bus = this.buses.find((b) => b.id === id)
     if (!bus) return null

@@ -62,6 +62,7 @@ function CinematicSetup() {
             {(
               [
                 ['drive', 'Follow a car through every town'],
+                ['ride', 'Ride along with a bus'],
                 ['fly', 'Fly over the region'],
               ] as const
             ).map(([id, label]) => (

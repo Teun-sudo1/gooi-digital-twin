@@ -412,6 +412,14 @@ function drive(waypoints: unknown): number | null {
   return main.traffic.addCar(route)
 }
 
+/** A bus to ride along with in the cinematic mode, and where it is. */
+function ride() {
+  const bus = main?.fleet.pickRide()
+  if (!bus || !main) return null
+  const [lng, lat] = toLngLat(main.traffic.net.projection, bus.x, bus.y)
+  return { id: bus.id, lngLat: [lng, lat] as [number, number] }
+}
+
 function pick(message: Extract<ToWorker, { type: 'pick' }>) {
   if (!scenario) return
   const [lng, lat] = message.lngLat
@@ -457,6 +465,9 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'drive':
       post({ type: 'drive', id: message.id, car: drive(message.waypoints) })
+      break
+    case 'ride':
+      post({ type: 'ride', id: message.id, bus: ride() })
       break
     case 'weather':
       if (main) for (const run of runs()) run.traffic.weather = { ...message.effects }
