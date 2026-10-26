@@ -21,7 +21,8 @@
     "fetch-scenery": "node scripts/fetch-scenery.mjs && node scripts/fetch-demand.mjs",
     "fetch-signals": "node scripts/fetch-signals.mjs",
     "fetch-lanes": "node scripts/fetch-lanes.mjs",
-    "data": "node scripts/fetch-osm.mjs && node scripts/fetch-timetables.mjs && node scripts/fetch-scenery.mjs && node scripts/fetch-demand.mjs && node scripts/fetch-signals.mjs && node scripts/fetch-lanes.mjs"
+    "fetch-road-geometry": "node scripts/fetch-road-geometry.mjs",
+    "data": "node scripts/fetch-osm.mjs && node scripts/fetch-timetables.mjs && node scripts/fetch-scenery.mjs && node scripts/fetch-demand.mjs && node scripts/fetch-signals.mjs && node scripts/fetch-lanes.mjs && node scripts/fetch-road-geometry.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^6.15.0",

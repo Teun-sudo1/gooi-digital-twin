@@ -10,7 +10,7 @@ import {
 } from '../../types/simulation'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 import { findRoute, TreeCache, type Route } from './routing'
-import { LANE_WIDTH, MAX_LANES } from './lanes'
+import { MAX_LANES, outerEdge } from './lanes'
 import { SignalState, turnAngle, type Signals } from './signals'
 
 /*
@@ -819,26 +819,20 @@ export class TrafficModel {
   private lateralFor(mode: Mode, edge: number, lane = 0) {
     const net = this.net
     const modes = net.edgeModes[edge]
-    const s = net.edgeSeg[edge]
-    const flags = net.segFlags[s]
-    const twoWayCars = (flags & 1) !== 0 && (flags & 2) !== 0
+    const flags = net.segFlags[net.edgeSeg[edge]]
     const hasCars = (modes & MODE_BIT[Mode.Car]) !== 0 || (flags & 3) !== 0
-    const lanes = net.edgeLanes[edge]
-    // Width of the extra lanes, which pushes bikes and pedestrians outwards.
-    const extra = (lanes - 1) * LANE_WIDTH
     if (mode === Mode.Car) return this.carLateral(edge, lane)
-    if (mode === Mode.Bike) return hasCars ? (twoWayCars ? 3.4 + extra : 2.2 + extra / 2) : 0.8
-    return hasCars ? 5.2 + extra : 0.4 + this.random() * 0.9
+    // On a street with cars, bikes keep to the edge of the asphalt and people to the pavement beyond.
+    const kerb = hasCars ? outerEdge(net, edge) : 0
+    if (mode === Mode.Bike) return hasCars ? kerb + 0.3 : 0.8
+    return hasCars ? kerb + 2 : 0.4 + this.random() * 0.9
   }
 
-  /** Metres right of the centreline of a car lane (lanes of a one-way street sit around its middle). */
+  /** Metres right of the street's line of the middle of a car lane (see lanes.ts for where lanes lie). */
   carLateral(edge: number, lane: number) {
     const net = this.net
-    const flags = net.segFlags[net.edgeSeg[edge]]
-    const twoWay = (flags & 1) !== 0 && (flags & 2) !== 0
     const lanes = net.edgeLanes[edge]
-    const fromInner = lanes - 1 - Math.min(lane, lanes - 1)
-    return twoWay ? 1.7 + fromInner * LANE_WIDTH : (fromInner - (lanes - 1) / 2) * LANE_WIDTH
+    return net.edgeInner[edge] + (lanes - Math.min(lane, lanes - 1) - 0.5) * net.edgeLaneWidth[edge]
   }
 
   private pedestrianTarget() {

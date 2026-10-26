@@ -65,6 +65,14 @@ export interface Network {
   edgeEndHeading: Float32Array
   /** Car lanes in the edge's direction (1 unless set by lanes.ts). */
   edgeLanes: Uint8Array
+  /**
+   * Where the edge's lanes lie across the street: the inner edge (metres right
+   * of the line, in the direction of travel) and the width of one lane. By
+   * default lanes are 3.2 m, right of the centreline on a two-way street and
+   * around it on a one-way one; lanes.ts sets them from measured outlines.
+   */
+  edgeInner: Float32Array
+  edgeLaneWidth: Float32Array
   /** Per-mode travel speed on each edge (m/s); 0 when the mode is not allowed. */
   edgeSpeed: [Float32Array, Float32Array, Float32Array, Float32Array]
 
@@ -171,6 +179,8 @@ export function buildNetwork(file: NetworkFile): Network {
   const edgeTo = new Int32Array(edgeCount)
   const edgePriority = new Int8Array(edgeCount)
   const edgeLanes = new Uint8Array(edgeCount).fill(1)
+  const edgeInner = new Float32Array(edgeCount)
+  const edgeLaneWidth = new Float32Array(edgeCount).fill(3.2)
   const edgeStartHeading = new Float32Array(edgeCount)
   const edgeEndHeading = new Float32Array(edgeCount)
   const edgeSpeed: [Float32Array, Float32Array, Float32Array, Float32Array] = [
@@ -188,6 +198,8 @@ export function buildNetwork(file: NetworkFile): Network {
     edgeTo[e] = rev ? seg.from[s] : seg.to[s]
     const cls = file.classes[segClass[s]]
     edgePriority[e] = segFlags[s] & SegmentFlag.Roundabout ? ROUNDABOUT_PRIORITY : (PRIORITY[cls] ?? 0)
+    const twoWayCars = (segFlags[s] & SegmentFlag.CarForward) !== 0 && (segFlags[s] & SegmentFlag.CarBackward) !== 0
+    edgeInner[e] = twoWayCars ? 0.1 : -1.6
 
     const a = geomStart[s]
     const b = geomStart[s + 1] - 1
@@ -243,6 +255,8 @@ export function buildNetwork(file: NetworkFile): Network {
     edgeModes,
     edgePriority,
     edgeLanes,
+    edgeInner,
+    edgeLaneWidth,
     edgeStartHeading,
     edgeEndHeading,
     edgeSpeed,

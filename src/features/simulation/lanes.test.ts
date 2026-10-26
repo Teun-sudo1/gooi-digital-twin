@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { Mode, type DemandFile, type NetworkFile } from '../../types/simulation'
-import { applyLanes, type LanesFile } from './lanes'
+import { applyLanes, outerEdge, readRoadGeometry, type LanesFile, type RoadGeometryFile } from './lanes'
 import { buildNetwork } from './network'
 import { turnAngle } from './signals'
 import { TrafficModel } from './traffic'
@@ -10,11 +10,13 @@ import { TrafficModel } from './traffic'
 const read = <T,>(path: string) =>
   JSON.parse(readFileSync(fileURLToPath(new URL(`../../../public/data/${path}`, import.meta.url)), 'utf8')) as T
 const lanesFile = read<LanesFile>('gooi-lanes.json')
+const geometryFile = read<RoadGeometryFile>('gooi-road-geometry.json')
+const sources = { file: lanesFile, geometry: readRoadGeometry(geometryFile) }
 const demand = read<DemandFile>('gooi-demand.json')
 
 describe('lanes', () => {
   const net = buildNetwork(read<NetworkFile>('gooi-network.json'))
-  applyLanes(net, lanesFile, true)
+  applyLanes(net, sources, true)
 
   it('come from the map data, with more than one where it says so', () => {
     const counts = [0, 0, 0, 0, 0]
@@ -27,8 +29,30 @@ describe('lanes', () => {
     expect(wide).toBeGreaterThan(20)
     // Switched off, every street has one.
     const off = buildNetwork(read<NetworkFile>('gooi-network.json'))
-    applyLanes(off, lanesFile, false)
+    applyLanes(off, sources, false)
     expect(off.edgeLanes.every((n) => n === 1)).toBe(true)
+  })
+
+  it('lie on the measured carriageways (BGT), also where the street line runs down a median', () => {
+    expect(geometryFile.meta.network).toBe(read<NetworkFile>('gooi-network.json').meta.generated)
+    let carSegments = 0
+    for (let s = 0; s < net.segmentCount; s++) if (net.segFlags[s] & 3) carSegments++
+    expect(geometryFile.rows.length / carSegments).toBeGreaterThan(0.5)
+    const geometry = readRoadGeometry(geometryFile)
+    let dual = 0
+    let checked = 0
+    for (let e = 0; e < net.edgeCount; e++) {
+      const measured = geometry.get(net.edgeSeg[e])?.[net.edgeRev[e]]
+      if (!measured || !(net.edgeModes[e] & 1)) continue
+      // The lanes fill the carriageway, edge to edge.
+      expect(net.edgeInner[e]).toBeCloseTo(measured[0], 3)
+      expect(outerEdge(net, e)).toBeCloseTo(measured[1], 3)
+      checked++
+      if (measured[0] > 2) dual++
+    }
+    expect(checked).toBeGreaterThan(5000)
+    // Dual carriageways mapped as one line: the lanes start beyond the median.
+    expect(dual).toBeGreaterThan(20)
   })
 
   it('are used side by side, without cars overlapping in a lane, and turning cars get in lane', () => {

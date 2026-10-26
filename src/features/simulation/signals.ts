@@ -1,5 +1,5 @@
 import { Mode } from '../../types/simulation'
-import { LANE_WIDTH } from './lanes'
+import { outerEdge } from './lanes'
 import { edgeLength, MODE_BIT, poseOnEdge, type Network, type Pose } from './network'
 
 /*
@@ -45,8 +45,8 @@ const GAP = 3
 /** Vehicles closer than this (m) to the stop line call a green; closer than DETECTOR they extend it. */
 const CALL_DISTANCE = 100
 const DETECTOR = 35
-/** Signal heads stand on the kerb, this far (m) right of the lane centre. */
-const KERB = 4.5
+/** Signal heads stand this far (m) beyond the outer edge of the lanes. */
+const KERB_OFFSET = 1.3
 
 const Stage = { Green: 0, Amber: 1, AllRed: 2 } as const
 type Stage = (typeof Stage)[keyof typeof Stage]
@@ -272,28 +272,18 @@ export function buildSignalPlan(net: Network, points: [number, number][]): Signa
       plan.approachOf[e] = approach
       plan.approaches.push({ edge: e, controller, axis, stopBack })
       poseOnEdge(net, e, Math.max(0, length - stopBack), pose)
-      // Past the outer lane on multi-lane approaches.
-      const oneWay = !hasReverse(net, e)
-      const kerb = KERB + (net.edgeLanes[e] - 1) * LANE_WIDTH * (oneWay ? 0.5 : 1)
+      // On the kerb, past the outer lane.
+      const kerb = outerEdge(net, e) + KERB_OFFSET
       const bearing = (((270 - (Math.atan2(pose.dy, pose.dx) * 180) / Math.PI) % 360) + 360) % 360
       plan.heads.push({ x: pose.x + pose.dy * kerb, y: pose.y - pose.dx * kerb, bearing, approach, left: false })
       if (left[axis] >= 0) {
-        // A second head for the left-turn phase, on the far side of the lane.
-        const side = oneWay ? KERB - 1 : 0.8
-        plan.heads.push({ x: pose.x - pose.dy * side, y: pose.y + pose.dx * side, bearing, approach, left: true })
+        // A second head for the left-turn phase, on the inner side of the lanes.
+        const side = net.edgeInner[e] - 0.8
+        plan.heads.push({ x: pose.x + pose.dy * side, y: pose.y - pose.dx * side, bearing, approach, left: true })
       }
     }
   }
   return plan
-}
-
-function hasReverse(net: Network, edge: number) {
-  const from = net.edgeFrom[edge]
-  for (let k = net.inStart[from]; k < net.inStart[from + 1]; k++) {
-    const e = net.inEdges[k]
-    if (net.edgeSeg[e] === net.edgeSeg[edge] && net.edgeModes[e] & MODE_BIT[Mode.Car]) return true
-  }
-  return false
 }
 
 /** The running lights of one simulation; `clone` gives another run the same junctions. */

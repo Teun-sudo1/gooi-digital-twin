@@ -75,6 +75,12 @@ check(laneWays.length > 1000 && Boolean(lanes.attribution), `lanes: ${laneWays.l
 check(matched / laneWays.length > 0.95, `lanes: only ${matched} of ${laneWays.length} lane ways are in the network (re-run scripts/fetch-lanes.mjs after fetch-osm.mjs)`)
 check(Object.values(lanes.ways).every(([f, b]) => f >= 0 && f <= 4 && b >= 0 && b <= 4 && f + b > 0), 'lanes: a lane count is out of range')
 
+const roadGeometry = json('public/data/gooi-road-geometry.json')
+// Rows are by segment index, so they must come from this very network (re-run fetch-road-geometry.mjs after fetch-osm.mjs).
+check(roadGeometry.meta?.network === network.meta.generated, 'road geometry: measured on another version of the network (run scripts/fetch-road-geometry.mjs)')
+check(roadGeometry.rows.length > segments * 0.2 && /CC0/.test(roadGeometry.meta?.license ?? ''), `road geometry: ${roadGeometry.rows.length} rows, licence ${roadGeometry.meta?.license}`)
+check(roadGeometry.rows.every(([s, ...edges]) => Number.isInteger(s) && s < segments && edges.every((v) => v === null || Math.abs(v) < 40)), 'road geometry: a row is out of range')
+
 // ---------------------------------------------------------------------------
 // Every data file is used by the app and documented; every script is run and documented
 

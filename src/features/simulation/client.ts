@@ -137,6 +137,7 @@ export class SimulationClient {
       signalsUrl: new URL('data/gooi-signals.json', base).href,
       signals: useAppStore.getState().layerVisibility.trafficLights,
       lanesUrl: new URL('data/gooi-lanes.json', base).href,
+      roadGeometryUrl: new URL('data/gooi-road-geometry.json', base).href,
       lanes: useAppStore.getState().layerVisibility.lanes,
       clock: state.startClock,
       density: state.density,

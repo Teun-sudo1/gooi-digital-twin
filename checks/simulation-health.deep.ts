@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { WEATHER_EFFECTS, type Weather } from '../src/features/environment/environment'
 import { buildScenarioNetwork } from '../src/features/scenarios/scenarioNetwork'
 import { BusFleet, matchLines } from '../src/features/simulation/buses'
-import { applyLanes, type LanesFile } from '../src/features/simulation/lanes'
+import { applyLanes, readRoadGeometry, type LanesFile, type RoadGeometryFile } from '../src/features/simulation/lanes'
 import { buildSignalPlan, Signals } from '../src/features/simulation/signals'
 import { TrafficModel } from '../src/features/simulation/traffic'
 import { TransitModel } from '../src/features/simulation/transit'
@@ -26,6 +26,7 @@ const transitFile = read<TransitFile>('gooi-transit.json')
 const demand = read<DemandFile>('gooi-demand.json')
 const signalsFile = read<SignalsFile>('gooi-signals.json')
 const lanesFile = read<LanesFile>('gooi-lanes.json')
+const laneSources = { file: lanesFile, geometry: readRoadGeometry(read<RoadGeometryFile>('gooi-road-geometry.json')) }
 
 const MINUTES = 30
 const DT = 0.5
@@ -70,7 +71,7 @@ interface Row {
 function simulate(situation: Situation): Row {
   const scenario = buildScenarioNetwork(networkFile, [])
   const net = scenario.net
-  applyLanes(net, lanesFile, situation.lanes ?? true)
+  applyLanes(net, laneSources, situation.lanes ?? true)
   const traffic = new TrafficModel(net, { density: DENSITY, startClock: situation.clock, seed: 7, demand })
   if (situation.weather) traffic.weather = { ...WEATHER_EFFECTS[situation.weather] }
   traffic.signals = new Signals(buildSignalPlan(net, signalsFile.points))
@@ -90,7 +91,7 @@ function simulate(situation: Situation): Row {
     for (let s = 0; s < flow.length; s++) if (main.has(net.classes[net.segClass[s]]) && (busiest < 0 || flow[s] > flow[busiest])) busiest = s
     original = traffic.fork(net, 8)
     const closed = buildScenarioNetwork(networkFile, [{ kind: 'access', segment: busiest, access: 'closed' }])
-    applyLanes(closed.net, lanesFile, true)
+    applyLanes(closed.net, laneSources, true)
     traffic.setNetwork(closed.net, Infinity, true)
     fleet.networkChanged()
     traffic.resetMeasures()

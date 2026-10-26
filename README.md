@@ -55,7 +55,7 @@ Everything runs in the browser as a static site. There is no backend.
 - **Pedestrians** on footways, pavements and paths, simulated around the area you are viewing at street level
 - All modes follow the real street network: about 56,000 street segments from OpenStreetMap, with one-way rules, roundabouts and speed limits
 - Cars brake for corners, keep a time gap to the car ahead, and follow Dutch right of way: side roads give way, roundabout traffic goes first, and on equal roads traffic from the right has priority. Queues form on their own.
-- **Lanes:** streets have as many lanes per direction as OpenStreetMap records (about 2,500 streets, including the A1 and A27 with three or four); elsewhere two on motorways and dual-carriageway trunk roads and one on other streets (assumed). Cars keep right, overtake slower vehicles on the left, get into the lane for their turn well before a junction (cars behind let them in), and are drawn side by side, sliding across when they change lane. From street level, multi-lane roads are drawn at their true width with lane lines that match where the cars drive. The **Multiple lanes** layer switch turns it off in the simulation (one lane per direction everywhere).
+- **Lanes on the real asphalt:** every 10 m along each street, a cross-section through the measured BGT carriageway outlines gives where the asphalt is for each direction, including dual carriageways that OpenStreetMap maps as one line down the median. Cars drive in lanes that share that width. Lane counts come from OpenStreetMap where it records them (about 2,500 streets, including the A1 and A27 with three or four), else from the measured width on main roads (about 3.4 m a lane), else two on motorways and dual-carriageway trunk roads and one elsewhere; minor streets keep one. Cars keep right, overtake slower vehicles on the left, get into the lane for their turn well before a junction (cars behind let them in), and are drawn side by side, sliding across when they change lane. From street level, multi-lane roads are drawn at their true width with lane lines that match where the cars drive. The **Multiple lanes** layer switch turns it off in the simulation (one lane per direction everywhere).
 - Traffic lights at the 115 junctions where OpenStreetMap maps signals. The corners of a large crossing (two dual carriageways meet in four junction points) form one junction with one controller: vehicles stop only where they enter, and drive straight across. Lights give green by direction, with amber and an all-red clearance; large junctions have a separate left-turn phase. They react to traffic: a green lasts while vehicles keep arriving, directions with nobody waiting are skipped, and a car only enters when there's room past the junction. Cars, bikes on the road and buses stop for red. Signal positions are real; phases and timings are assumed. They're off by default: switch on **Traffic lights** in the Layers panel to use them (switching them off again returns junctions to the right-of-way rules).
 - Weekday demand profiles per mode, with morning and evening rush hours, plus through traffic on the A1 and A27
 - Play/pause, clock and time-of-day scrubber, speed 1–60×, traffic density slider
@@ -172,8 +172,8 @@ src/
   features/scenarios/   road edits: scenario network, map layers, editing tools
   features/scenery/     trees and street lights: data, 3D models and layer
   hooks/ store/ types/ utils/ data/
-public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json, gooi-demand.json, gooi-signals.json, gooi-lanes.json (generated, committed)
-scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, fetch-demand.mjs, fetch-signals.mjs, fetch-lanes.mjs, osm-common.mjs
+public/data/            gooi-network.json, gooi-transit.json, gooi-scenery.json, gooi-demand.json, gooi-signals.json, gooi-lanes.json, gooi-road-geometry.json (generated, committed)
+scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, fetch-demand.mjs, fetch-signals.mjs, fetch-lanes.mjs, fetch-road-geometry.mjs, osm-common.mjs
 ```
 
 - **Data build (offline).** `scripts/fetch-osm.mjs` downloads all streets and paths in the Gooi from the Overpass API. It splits them at junctions, works out car, bike and foot access in each direction, and keeps each mode's connected network. Roads leaving the area stay connected through a virtual "outside world" node, so through traffic works. It also extracts bus and train route relations, stitching their ways into continuous lines and projecting the stops onto them. `scripts/fetch-timetables.mjs` then streams the national GTFS feed. It matches every trip serving the Gooi to its OSM route variant by line number or train series, stop positions and stop order, and stores the trip's stop times. The outputs are compact (≈1 MB gzipped together) and are committed.
@@ -192,6 +192,7 @@ scripts/                fetch-osm.mjs, fetch-timetables.mjs, fetch-scenery.mjs, 
 | Street network, bus and train routes and stops | OpenStreetMap contributors, via the [Overpass API](https://overpass-api.de/) | ODbL 1.0 |
 | Lanes per direction | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-lanes.mjs`) | ODbL 1.0 |
 | Traffic signal positions | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-signals.mjs`) | ODbL 1.0 |
+| Carriageway edges per street (`gooi-road-geometry.json`) | Measured from BGT carriageway outlines via the PDOK OGC API (`scripts/fetch-road-geometry.mjs`) | CC0 1.0 |
 | Street outlines (carriageways, cycle paths, pavements, verges) | BGT, as vector tiles from the PDOK OGC API, loaded live from zoom 17 | CC0 1.0 |
 | Street and park trees | BGT (Basisregistratie Grootschalige Topografie), vegetation points of type *boom*, via the PDOK OGC API (`scripts/fetch-scenery.mjs`) | CC0 1.0 |
 | Trees, forests, street lamps | OpenStreetMap contributors, via the Overpass API (`scripts/fetch-scenery.mjs`) | ODbL 1.0 |
@@ -235,6 +236,7 @@ node scripts/fetch-osm.mjs --refresh          # force fresh OSM data
 node scripts/fetch-scenery.mjs --refresh      # force fresh trees, forests and lamps
 node scripts/fetch-signals.mjs --refresh      # force fresh traffic signal positions
 node scripts/fetch-lanes.mjs --refresh        # force fresh lane counts
+node scripts/fetch-road-geometry.mjs --refresh  # re-download carriageway outlines (after fetch-osm.mjs, always re-run this)
 node scripts/fetch-demand.mjs --refresh       # force fresh CBS neighbourhood figures
 node scripts/fetch-timetables.mjs --refresh   # force a fresh GTFS feed (~240 MB)
 node scripts/fetch-timetables.mjs --date 20261104   # use another service day

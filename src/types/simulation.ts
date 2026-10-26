@@ -251,7 +251,7 @@ export interface Viewport {
 }
 
 export type ToWorker =
-  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; lanesUrl: string; lanes: boolean; clock: number; density: number; speed: number; playing: boolean }
+  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; lanesUrl: string; lanes: boolean; roadGeometryUrl: string; clock: number; density: number; speed: number; playing: boolean }
   | { type: 'play'; playing: boolean }
   | { type: 'speed'; speed: number }
   | { type: 'density'; density: number }
