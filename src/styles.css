@@ -2266,6 +2266,100 @@ kbd {
   text-transform: uppercase;
 }
 
+.cinematic-music {
+  position: absolute;
+  right: max(24px, 4vw);
+  bottom: calc(9vh + 24px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(420px, calc(100vw - 48px));
+  padding: 6px 8px 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: auto;
+  animation: caption-in 1.6s ease both;
+}
+
+.cinematic-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-right: 4px;
+}
+
+.cinematic-track > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cinematic-track a {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.cinematic-track a:hover {
+  text-decoration: underline;
+}
+
+.cinematic-music svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cinematic-music button {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+}
+
+.cinematic-music button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.cinematic-music input[type='range'] {
+  width: 72px;
+  accent-color: #fff;
+}
+
+@media (max-width: 640px) {
+  .cinematic-music {
+    left: 16px;
+    right: 16px;
+    bottom: calc(9vh + 12px);
+  }
+
+  .cinematic-music input[type='range'] {
+    display: none;
+  }
+
+  .cinematic-overlay:has(.cinematic-music) .cinematic-caption {
+    bottom: calc(9vh + 72px);
+  }
+}
+
 .cinematic-exit {
   position: absolute;
   top: calc(9vh + 12px);
@@ -2281,7 +2375,8 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   .letterbox,
-  .cinematic-caption {
+  .cinematic-caption,
+  .cinematic-music {
     animation: none;
   }
 }

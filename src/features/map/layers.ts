@@ -15,7 +15,7 @@ export const LAYER_GROUPS: LayerGroup[] = [
   { id: 'streetLights', label: 'Street lighting', layerIds: [] },
   // Also switches the lights off in the simulation: junctions then use the right-of-way rules.
   { id: 'trafficLights', label: 'Traffic lights', layerIds: [] },
-  // A simulation setting: off, every street has one lane per direction.
+  // A simulation setting: off, every street has one lane per direction (and the lane lines follow).
   { id: 'lanes', label: 'Multiple lanes', layerIds: [] },
   {
     id: 'roads',
@@ -27,6 +27,8 @@ export const LAYER_GROUPS: LayerGroup[] = [
       'road-major',
       'road-motorway-casing',
       'road-motorway',
+      'lane-lines',
+      'lane-centre',
     ],
   },
   { id: 'rail', label: 'Rail', layerIds: ['rail', 'rail-hatch'] },

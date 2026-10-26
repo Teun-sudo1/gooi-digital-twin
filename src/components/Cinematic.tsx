@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { WEATHER_LABELS, type WeatherSetting } from '../features/environment/environment'
 import { START_TIMES, type CinematicStyle } from '../features/cinematic/cinematic'
+import { ARTIST, MUSIC_SOURCE, useMusic } from '../features/cinematic/music'
 import { useCinematic } from '../features/cinematic/useCinematic'
 import { useAppStore } from '../store/useAppStore'
 import { useSimulationStore } from '../store/useSimulationStore'
@@ -10,6 +11,7 @@ function CinematicSetup() {
   const current = useAppStore((s) => s.weatherSetting)
   const [labels, setLabels] = useState(useAppStore.getState().layerVisibility.labels)
   const [trees, setTrees] = useState(useAppStore.getState().treeOpacity)
+  const [music, setMusic] = useState(useAppStore.getState().cinematicMusic)
   const [time, setTime] = useState(1)
   const [weather, setWeather] = useState<WeatherSetting>(current)
   const [style, setStyle] = useState<CinematicStyle>(useAppStore.getState().cinematicStyle)
@@ -32,6 +34,7 @@ function CinematicSetup() {
     useAppStore.setState((s) => ({
       cinematic: 'playing',
       cinematicStyle: style,
+      cinematicMusic: music,
       weatherSetting: weather,
       lightingMode: 'auto',
       tourOpen: false,
@@ -107,6 +110,22 @@ function CinematicSetup() {
             </output>
           </div>
         </fieldset>
+        <fieldset>
+          <legend>Music</legend>
+          <div className="cinematic-options">
+            {(
+              [
+                [true, 'Lofi'],
+                [false, 'Off'],
+              ] as const
+            ).map(([on, label]) => (
+              <label key={label} className={music === on ? 'active' : undefined}>
+                <input type="radio" name="cinematic-music" checked={music === on} onChange={() => setMusic(on)} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <div className="cinematic-actions">
           <button className="cinematic-cancel" onClick={cancel}>
             Cancel
@@ -123,6 +142,7 @@ function CinematicSetup() {
 /** Letterbox bars, the place being shown, and a way out. */
 function CinematicOverlay() {
   const caption = useCinematic()
+  const musicOn = useAppStore((s) => s.cinematicMusic)
   return (
     <div className="cinematic-overlay" aria-live="polite">
       <div className="letterbox top" aria-hidden="true" />
@@ -134,9 +154,59 @@ function CinematicOverlay() {
         </div>
       )}
       <span className="cinematic-badge">Simulated traffic</span>
+      {musicOn && <MusicControls />}
       <button className="cinematic-exit" onClick={() => useAppStore.setState({ cinematic: null })}>
         Exit · Esc
       </button>
+    </div>
+  )
+}
+
+/** What is playing, and next, mute and volume. */
+function MusicControls() {
+  const music = useMusic(true)
+  if (!music.track) return null
+  return (
+    <div className="cinematic-music">
+      <span className="cinematic-track" title={`${music.track.title} by ${ARTIST} (CC0)`}>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 12.5V3.5l7-1.5v9" />
+          <circle cx="4.5" cy="12.5" r="1.8" />
+          <circle cx="11.5" cy="11" r="1.8" />
+        </svg>
+        <span>
+          {music.track.title}
+          <a href={MUSIC_SOURCE} target="_blank" rel="noreferrer">
+            {ARTIST} · CC0
+          </a>
+        </span>
+      </span>
+      {music.blocked ? (
+        <button onClick={music.resume}>Play music</button>
+      ) : (
+        <>
+          <button onClick={music.next} aria-label="Next track" title="Next track">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 3.5v9l7-4.5zM12.5 3.5v9" />
+            </svg>
+          </button>
+          <button onClick={music.toggleMute} aria-label={music.muted ? 'Unmute' : 'Mute'} aria-pressed={music.muted} title={music.muted ? 'Unmute' : 'Mute'}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z" />
+              {music.muted ? <path d="m11 6 4 4m0-4-4 4" /> : <path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.8a6 6 0 0 1 0 8.4" />}
+            </svg>
+          </button>
+          <input
+            type="range"
+            min={5}
+            max={100}
+            step={5}
+            value={Math.round(music.volume * 100)}
+            aria-label="Music volume"
+            onChange={(e) => music.setVolume(Number(e.target.value) / 100)}
+          />
+        </>
+      )}
     </div>
   )
 }

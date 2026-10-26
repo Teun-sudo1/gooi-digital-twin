@@ -26,7 +26,7 @@ import {
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, fromLngLat, MODE_BIT, toLngLat, type Network } from './network'
 import { findRoute, type Route } from './routing'
-import { applyLanes, readRoadGeometry, type LaneSources, type LanesFile, type RoadGeometry, type RoadGeometryFile } from './lanes'
+import { applyLanes, laneMarkings, readRoadGeometry, type LaneSources, type LanesFile, type RoadGeometry, type RoadGeometryFile } from './lanes'
 import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
 import { BUS_ID_BASE, TRAIN_ID_BASE, TransitModel } from './transit'
@@ -312,6 +312,7 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
       timetableDate: transit.timetableDate,
       signals: traffic.signals?.plan.heads.map(({ x, y, bearing }) => ({ x, y, bearing })) ?? [],
     })
+    postLaneMarkings()
     lastTick = performance.now()
     tick()
   } catch (error) {
@@ -342,11 +343,27 @@ function applyScenario(list: Intervention[]) {
   resetMeasures()
   lastStats = 0
   lastComparison = performance.now()
+  postLaneMarkings()
 }
 
 /** Lane counts and measured carriageways, plus the lanes of roads added in a scenario. */
 function laneSources(s: ScenarioNetwork | null): LaneSources {
   return { file: lanesFile, geometry: roadGeometry, added: s ? { first: s.baseSegments, lanes: s.newLanes } : undefined }
+}
+
+/** Lane lines for the map: every car street of the current scenario, without removed ones. */
+function postLaneMarkings() {
+  if (!scenario) return
+  const projection = scenario.net.projection
+  const round = (v: number) => Math.round(v * 1e6) / 1e6
+  post({
+    type: 'laneMarkings',
+    features: laneMarkings(scenario.net, laneSources(scenario), lanesOn, scenario.removed).map((m) => ({
+      coordinates: m.points.map(([x, y]) => toLngLat(projection, x, y).map(round) as [number, number]),
+      kind: m.kind,
+      offset: Math.round(m.offset * 100) / 100,
+    })),
+  })
 }
 
 /** The junction nearest to a point (within 400 m) where cars can drive off, or -1. */
@@ -452,6 +469,7 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       lanesOn = message.enabled === true
       if (scenario) applyLanes(scenario.net, laneSources(scenario), lanesOn)
       if (originalNet && originalNet !== scenario?.net) applyLanes(originalNet, laneSources(null), lanesOn)
+      postLaneMarkings()
       break
     case 'stop':
       board = message.line === null || !Number.isInteger(message.line) || !Number.isInteger(message.stop) ? null : { line: message.line, stop: message.stop }

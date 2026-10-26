@@ -36,6 +36,7 @@ export interface Palette {
   motorway: string
   motorwayCasing: string
   /** Lane lines on multi-lane roads. */
+  laneMarking: string
   /** Cycle paths (red asphalt, as in the Netherlands). */
   cycleway: string
   /** Pavements and squares, and parking spaces, in the street outlines. */
@@ -74,6 +75,7 @@ export const DAY: Palette = {
   roadMajorCasing: '#c5cbd4',
   motorway: '#f3c97a',
   motorwayCasing: '#d09d4a',
+  laneMarking: '#9aa3ae',
   cycleway: '#d9a29a',
   footway: '#e3e6ea',
   parking: '#d9dde3',
@@ -109,6 +111,7 @@ export const NIGHT: Palette = {
   roadMajorCasing: '#151a21',
   motorway: '#8a6a45',
   motorwayCasing: '#2a2016',
+  laneMarking: '#7d8896',
   cycleway: '#5a3a36',
   footway: '#1a2029',
   parking: '#1d242e',
@@ -190,6 +193,7 @@ const roadClass = (...classes: string[]): ExpressionSpecification => [
 const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel']
 
 /** GeoJSON source of road surfaces and lane lines on multi-lane roads (filled by the simulation). */
+export const LANES = 'lane-markings'
 
 /**
  * Street outlines from the BGT (Basisregistratie Grootschalige Topografie):
@@ -449,6 +453,34 @@ function buildLayers(color: Palette): LayerSpecification[] {
       },
     },
 
+    // Lane markings on every street cars use (from street level): a centre line
+    // where the directions meet and dashed lines between lanes, where the cars drive.
+    {
+      id: 'lane-lines',
+      type: 'line',
+      source: LANES,
+      minzoom: 16,
+      filter: ['==', ['get', 'kind'], 'divider'],
+      paint: {
+        'line-color': color.laneMarking,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 16, 0.6, 20, 2],
+        'line-offset': metres(['get', 'offset']),
+        'line-dasharray': [3, 4],
+      },
+    },
+    {
+      id: 'lane-centre',
+      type: 'line',
+      source: LANES,
+      minzoom: 16,
+      filter: ['==', ['get', 'kind'], 'centre'],
+      paint: {
+        'line-color': color.laneMarking,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 16, 0.6, 20, 2],
+        'line-offset': metres(['get', 'offset']),
+      },
+    },
+
     // Rail
     {
       id: 'rail',
@@ -647,6 +679,7 @@ export function buildStyle(palette: Palette): StyleSpecification {
           '<a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> · ' +
           '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
       },
+      [LANES]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [NEW_ROADS]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [BGT]: {
         type: 'vector',

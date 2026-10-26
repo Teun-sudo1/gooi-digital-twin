@@ -120,3 +120,66 @@ function mappedLanes(net: Network, { file, geometry, added }: LaneSources, e: nu
 export function outerEdge(net: Network, e: number) {
   return net.edgeInner[e] + net.edgeLanes[e] * net.edgeLaneWidth[e]
 }
+
+/** Markings stop this far (m) from a junction, so they don't run across it. */
+const MARKING_SETBACK = 7
+
+/**
+ * Lane markings for every street cars use, in local metres along each
+ * segment: a centre line where the two directions meet, and dashed lines
+ * between the lanes of a direction. Offsets are metres to the right of the
+ * segment's drawing direction and match where cars drive (see
+ * TrafficModel.carLateral).
+ */
+export interface LaneMarking {
+  /** Points along the segment (local metres). */
+  points: [number, number][]
+  kind: 'divider' | 'centre'
+  /** Metres right of the line (negative: left). */
+  offset: number
+}
+
+export function laneMarkings(net: Network, sources: LaneSources, enabled: boolean, hidden?: Set<number>): LaneMarking[] {
+  const out: LaneMarking[] = []
+  // The car edge of each segment and direction.
+  const forward = new Int32Array(net.segmentCount).fill(-1)
+  const backward = new Int32Array(net.segmentCount).fill(-1)
+  for (let e = 0; e < net.edgeCount; e++) {
+    const s = net.edgeSeg[e]
+    if (s >= net.segmentCount || !(net.segFlags[s] & (net.edgeRev[e] ? SegmentFlag.CarBackward : SegmentFlag.CarForward))) continue
+    ;(net.edgeRev[e] ? backward : forward)[s] = e
+  }
+  for (let s = 0; s < net.segmentCount; s++) {
+    if (hidden?.has(s)) continue
+    // Offsets in the segment's drawing direction: the backward lanes mirror theirs.
+    const f = forward[s] >= 0 ? edgeShape(net, sources, forward[s], enabled) : null
+    const b = backward[s] >= 0 ? edgeShape(net, sources, backward[s], enabled) : null
+    if (!f && !b) continue
+    const points: [number, number][] = []
+    for (let k = net.geomStart[s]; k < net.geomStart[s + 1]; k++) points.push([net.geomX[k], net.geomY[k]])
+    const lines = trim(points, Math.min(MARKING_SETBACK, net.segLength[s] * 0.25))
+    if (!lines) continue
+    const line = (kind: LaneMarking['kind'], offset: number) => out.push({ points: lines, kind, offset })
+    if (f) for (let k = 1; k < f.lanes; k++) line('divider', f.inner + k * f.laneWidth)
+    if (b) for (let k = 1; k < b.lanes; k++) line('divider', -(b.inner + k * b.laneWidth))
+    // Where the directions meet; on dual carriageways the median separates them instead.
+    if (f && b && Math.abs(f.inner + b.inner) < 1) line('centre', (f.inner - b.inner) / 2)
+  }
+  return out
+}
+
+/** The part of a polyline from `cut` metres after its start to `cut` before its end, or null when too short. */
+function trim(points: [number, number][], cut: number): [number, number][] | null {
+  const lengths = [0]
+  for (let i = 1; i < points.length; i++) lengths.push(lengths[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]))
+  const total = lengths[lengths.length - 1]
+  if (total - 2 * cut < 4) return null
+  const at = (d: number): [number, number] => {
+    let i = 1
+    while (i < points.length - 1 && lengths[i] < d) i++
+    const t = (d - lengths[i - 1]) / (lengths[i] - lengths[i - 1] || 1)
+    return [points[i - 1][0] + (points[i][0] - points[i - 1][0]) * t, points[i - 1][1] + (points[i][1] - points[i - 1][1]) * t]
+  }
+  const inner = points.filter((_, i) => lengths[i] > cut && lengths[i] < total - cut)
+  return [at(cut), ...inner, at(total - cut)]
+}

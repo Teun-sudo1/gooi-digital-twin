@@ -20,6 +20,8 @@ interface AppState {
   /** Cinematic mode: choosing the time and weather, or flying through the region. */
   cinematic: 'setup' | 'playing' | null
   cinematicStyle: 'drive' | 'fly'
+  /** Lofi music during cinematic mode. */
+  cinematicMusic: boolean
   /** Follow the simulated sun, or force day or night. */
   lightingMode: LightingMode
   /** Drawn map or aerial photos. */
@@ -56,6 +58,7 @@ export const useAppStore = create<AppState>((set) => ({
   tourOpen: false,
   cinematic: null,
   cinematicStyle: 'drive',
+  cinematicMusic: true,
   lightingMode: 'auto',
   basemap: 'map',
   mapMode: 'explore',

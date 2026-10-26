@@ -100,6 +100,15 @@ for (const [name, command] of Object.entries(pkg.scripts)) {
   }
 }
 
+// The cinematic music: every listed track is there, every file is listed, and the credit is in the README.
+const musicList = text('src/features/cinematic/music.ts')
+const listed = [...musicList.matchAll(/file: '([^']+)'/g)].map((m) => m[1])
+const musicFiles = readdirSync(resolve(ROOT, 'public/music'))
+check(listed.length > 0, 'music: no tracks listed in music.ts')
+for (const file of listed) check(musicFiles.includes(file), `music: ${file} is listed in music.ts but missing from public/music`)
+for (const file of musicFiles) check(listed.includes(file), `music: public/music/${file} is not listed in music.ts`)
+check(/Holizna/.test(readme) && /opengameart\.org\/node\/161819/.test(readme), 'music: the credit and source are missing from the README')
+
 // ---------------------------------------------------------------------------
 // The README matches the repository and the app
 
