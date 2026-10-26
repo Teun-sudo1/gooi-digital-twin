@@ -21,7 +21,7 @@ Everything runs in the browser as a static site. There is no backend.
 ### Map
 
 - 3D map of the whole Gooi region, with extruded buildings from OpenStreetMap
-- **Cinematic mode:** the **Cinematic** button in the title bar asks for a camera, a time of day, the weather, whether to show labels, the tree opacity and the music. *Lofi* plays the seven tracks of the album *Lo-Fi and Chill* by Holizna (public domain, CC0) shuffled, with the track name, next, mute and volume in the corner; *Off* is silent. *Follow a car* starts one car on a 30 km loop through every town (Hilversum, Laren, Eemnes, Blaricum, Huizen, Naarden, Bussum) in ordinary simulated traffic, at 2× speed, and the camera glides behind it (easing out the car's sharp braking and steering) with the town, street and speed as a caption. *Fly over the region* flies slowly from the Gooimeer to Huizen, a busy crossing, the A27, Laren, Naarden, Bussum and Hilversum station. Both show letterbox bars and loop; any key, the Exit button or moving the map stops them.
+- **Cinematic mode:** the **Cinematic** button in the title bar asks for a camera, a time of day, the weather (snow also turns the trees to winter), whether to show labels, the tree opacity and the music. *Lofi* plays the seven tracks of the album *Lo-Fi and Chill* by Holizna (public domain, CC0) shuffled, with the track name, next, mute and volume in the corner; *Off* is silent. *Follow a car* starts one car on a 30 km loop through every town (Hilversum, Laren, Eemnes, Blaricum, Huizen, Naarden, Bussum) in ordinary simulated traffic, at 2× speed, and the camera glides behind it (easing out the car's sharp braking and steering) with the town, street and speed as a caption. *Fly over the region* flies slowly from the Gooimeer to Huizen, a busy crossing, the A27, Laren, Naarden, Bussum and Hilversum station. Both show letterbox bars and loop. `Space` pauses (the music too), `1`–`4` and `-` `+` set the speed, `M` mutes and `N` skips a track; `Esc`, the Exit button or moving the map stops them.
 - **A short guided tour** on the first visit (seven steps, each pointing at the part of the screen it's about); the ? button under the camera controls starts it again
 - **Day and night follow the simulated sun.** The map and interface fade from a light day palette to a dark night palette through twilight, using the sun's real elevation over the Gooi for today's date (or the chosen season). Headlights come on after dusk. The layer panel can also force Day or Night.
 - **Map modes**, as in map apps: *Explore* (the plain map), *Driving* (busy streets coloured by congestion), *Transit* (bus and train routes and stops) and *Satellite* (aerial photos). They sit at the top of the map panel; the individual layer switches still work underneath.
@@ -112,10 +112,13 @@ Panels move into a dock at the bottom: the simulation controls with tabs for *St
 | `T` | Toggle 2D / 3D |
 | `H` | Reset view to the region |
 | `Space` | Play / pause simulation |
+| `1` `2` `3` `4` | Simulation speed 1× / 5× / 20× / 60× |
+| `-` / `+` | Simulation slower / faster |
 | `/` | Focus search |
 | `?` | Show shortcuts |
 | `Esc` | Stop following / editing roads / cancel a new road |
 | `Enter` / `Backspace` | Finish the new road / undo its last bend |
+| `M` / `N` | Cinematic mode: mute the music / next track (`Space`, the speed keys and `Esc` work there too) |
 
 ## Technology
 

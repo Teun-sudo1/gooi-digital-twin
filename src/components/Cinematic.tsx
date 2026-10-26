@@ -31,11 +31,15 @@ function CinematicSetup() {
       controller.setPlaying(true)
     }
     // The sun follows the chosen time; panels and tours make way.
+    // Snow comes with winter trees; leaving snow behind goes back to today's season.
+    const { seasonSetting, weatherSetting } = useAppStore.getState()
+    const season = weather === 'snow' ? 'winter' : weatherSetting === 'snow' && seasonSetting === 'winter' ? 'auto' : seasonSetting
     useAppStore.setState((s) => ({
       cinematic: 'playing',
       cinematicStyle: style,
       cinematicMusic: music,
       weatherSetting: weather,
+      seasonSetting: season,
       lightingMode: 'auto',
       tourOpen: false,
       shortcutsOpen: false,
@@ -48,7 +52,10 @@ function CinematicSetup() {
     <div className="cinematic-backdrop" onKeyDown={(e) => e.key === 'Escape' && cancel()}>
       <section className="cinematic-setup panel" role="dialog" aria-modal="true" aria-labelledby="cinematic-title">
         <h2 id="cinematic-title">Cinematic mode</h2>
-        <p>Sit back and watch the Gooi. Press any key or move the map to stop.</p>
+        <p>
+          Sit back and watch the Gooi. <kbd>Space</kbd> pauses, <kbd>1</kbd>–<kbd>4</kbd> set the speed, <kbd>M</kbd> mutes, <kbd>N</kbd> skips a track;{' '}
+          <kbd>Esc</kbd> or moving the map stops.
+        </p>
         <fieldset>
           <legend>Camera</legend>
           <div className="cinematic-options">
@@ -153,7 +160,7 @@ function CinematicOverlay() {
           <span>{caption.subtitle}</span>
         </div>
       )}
-      <span className="cinematic-badge">Simulated traffic</span>
+      <SpeedBadge />
       {musicOn && <MusicControls />}
       <button className="cinematic-exit" onClick={() => useAppStore.setState({ cinematic: null })}>
         Exit · Esc
@@ -162,9 +169,28 @@ function CinematicOverlay() {
   )
 }
 
-/** What is playing, and next, mute and volume. */
+/** That the traffic is simulated, and at what speed (or paused). */
+function SpeedBadge() {
+  const playing = useSimulationStore((s) => s.playing)
+  const speed = useSimulationStore((s) => s.speed)
+  return <span className="cinematic-badge">Simulated traffic · {playing ? `${speed}×` : 'paused'}</span>
+}
+
+/** What is playing, and next, mute and volume (also M and N). Pauses with the simulation. */
 function MusicControls() {
-  const music = useMusic(true)
+  const playing = useSimulationStore((s) => s.playing)
+  const music = useMusic(true, !playing)
+  const { next, toggleMute } = music
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return
+      const key = event.key.toLowerCase()
+      if (key === 'm') toggleMute()
+      else if (key === 'n') next()
+    }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [next, toggleMute])
   if (!music.track) return null
   return (
     <div className="cinematic-music">

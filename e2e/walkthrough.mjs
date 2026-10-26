@@ -251,6 +251,19 @@ async function desktop(browser, url) {
     const track = await page.$eval('.cinematic-track', (e) => e.innerText.split('\n')[0])
     await page.click('.cinematic-music button[aria-label="Next track"]')
     await page.waitForFunction((t) => document.querySelector('.cinematic-track')?.innerText.split('\n')[0] !== t, track)
+    // Keys: N skips a track, M mutes, 3 sets 20×, Space pauses; none of them ends the drive.
+    const second = await page.$eval('.cinematic-track', (e) => e.innerText.split('\n')[0])
+    await page.keyboard.press('n')
+    await page.waitForFunction((t) => document.querySelector('.cinematic-track')?.innerText.split('\n')[0] !== t, second)
+    await page.keyboard.press('m')
+    await page.waitForSelector('.cinematic-music button[aria-pressed="true"]')
+    await page.keyboard.press('3')
+    await page.waitForSelector('.cinematic-badge:has-text("20×")')
+    await page.keyboard.press(' ')
+    await page.waitForSelector('.cinematic-badge:has-text("paused")')
+    await page.keyboard.press(' ')
+    await page.keyboard.press('2')
+    assert(await page.$('.cinematic-overlay'), 'a key ended the drive')
     // Flying down to the start, then riding along: the caption names a town and a speed.
     await page.waitForFunction(() => /km\/h/.test(document.querySelector('.cinematic-caption')?.textContent ?? ''), null, { timeout: 30_000 })
     const first = await page.evaluate(() => location.hash)
@@ -261,6 +274,15 @@ async function desktop(browser, url) {
     await page.keyboard.press('Escape')
     await page.waitForTimeout(600)
     assert(!(await page.$('.cinematic-overlay')), 'Escape did not stop the drive')
+    // Outside cinematic mode the speed keys set the speed buttons.
+    const checked = () => page.$eval('[aria-labelledby="sim-speed-label"] [aria-checked="true"]', (e) => e.textContent)
+    const before = await checked()
+    const speedIs = (text) => page.waitForFunction((t) => document.querySelector('[aria-labelledby="sim-speed-label"] [aria-checked="true"]')?.textContent.includes(t), text, { timeout: 3000 })
+    await page.keyboard.press('4')
+    await speedIs('60').catch(async () => assert(false, `the 4 key did not set 60× (${await checked()})`))
+    await page.keyboard.press('-')
+    await speedIs('20').catch(async () => assert(false, `the - key did not slow down to 20× (${await checked()})`))
+    if (!/20/.test(before)) await page.click(`[aria-labelledby="sim-speed-label"] button:has-text("${before.trim()}")`)
     return caption
   })
 
@@ -291,6 +313,16 @@ async function desktop(browser, url) {
     assert(!(await page.locator('#layer-list label.toggle', { hasText: 'Labels' }).locator('input').isChecked()), 'the labels stayed on')
     assert((await page.$eval('#tree-opacity', (e) => Number(e.value))) === 10, 'the tree opacity was not applied')
     await page.selectOption('#weather-select', 'live').catch(() => {})
+    // Snow brings winter trees.
+    await page.click('.cinematic-button')
+    await page.click('.cinematic-options label:has-text("Snow")')
+    await page.click('.cinematic-start')
+    await page.waitForSelector('.weather-overlay.weather-snow')
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(600)
+    assert((await page.$eval('#season-select', (e) => e.value)) === 'winter', 'snow did not bring winter trees')
+    await page.selectOption('#weather-select', 'live')
+    await page.selectOption('#season-select', 'auto')
     return place
   })
 

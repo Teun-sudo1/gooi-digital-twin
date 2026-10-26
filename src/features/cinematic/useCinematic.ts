@@ -2,6 +2,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import { useEffect, useState } from 'react'
 import { PLACES } from '../../data/places'
 import { useMapInstance } from '../../hooks/useMapInstance'
+import { speedKey } from '../../hooks/useKeyboardShortcuts'
 import { useAppStore } from '../../store/useAppStore'
 import { useSimulationStore } from '../../store/useSimulationStore'
 import { DRIVE_CAMERA, DRIVE_SPEED, DRIVE_WAYPOINTS, flyTour } from './cinematic'
@@ -91,9 +92,12 @@ async function drive(map: MapLibreMap, signal: AbortSignal, onCaption: (caption:
   }
 }
 
+/** Keys of cinematic mode itself: pause, speed, and the music's mute and next. */
+const CINEMATIC_KEYS = /^([ 1-4mn=+_-])$/
+
 /**
  * Runs the cinematic mode while it is playing, and returns the caption to
- * show. Any key, or moving the map yourself, ends it.
+ * show. Esc, or moving the map yourself, ends it.
  */
 export function useCinematic(): Caption | null {
   const map = useMapInstance()
@@ -109,11 +113,25 @@ export function useCinematic(): Caption | null {
     const onMove = (event: { originalEvent?: Event }) => {
       if (event.originalEvent) stop()
     }
+    // Before the map's own shortcuts, so keys don't move the camera: Esc stops, Space
+    // pauses, 1–4 and - + set the speed (M and N are the music's, see MusicControls).
     const onKey = (event: KeyboardEvent) => {
-      // Before the map's own shortcuts, so a key ends cinematic mode instead of moving the map.
+      if (event.metaKey || event.ctrlKey || event.altKey) return
       event.stopPropagation()
+      const key = event.key.toLowerCase()
+      if (key === 'escape') {
+        event.preventDefault()
+        stop()
+        return
+      }
+      // Other keys (Tab, Enter, the volume slider's arrows) work on the controls on screen.
+      const onControl = (event.target as HTMLElement | null)?.closest?.('.cinematic-overlay')
+      if (key === 'tab' || (onControl && !CINEMATIC_KEYS.test(key))) return
       event.preventDefault()
-      stop()
+      if (event.repeat) return
+      const sim = useSimulationStore.getState()
+      if (key === ' ') sim.controller?.setPlaying(!sim.playing)
+      else speedKey(key)
     }
     map.on('movestart', onMove)
     window.addEventListener('keydown', onKey, { capture: true })

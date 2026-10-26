@@ -74,8 +74,8 @@ export interface Music {
   resume: () => void
 }
 
-/** Plays the tracks shuffled while `on`; fades out and stops when it turns off. */
-export function useMusic(on: boolean): Music {
+/** Plays the tracks shuffled while `on` (holding while `paused`); fades out and stops when it turns off. */
+export function useMusic(on: boolean, paused = false): Music {
   const audio = useRef<HTMLAudioElement | null>(null)
   const [track, setTrack] = useState<Track | null>(null)
   const [blocked, setBlocked] = useState(false)
@@ -128,6 +128,13 @@ export function useMusic(on: boolean): Music {
       setMuted(false)
     }
   }, [on])
+
+  useEffect(() => {
+    const element = audio.current
+    if (!element || !track) return
+    if (paused) element.pause()
+    else if (element.paused) element.play().catch(() => {})
+  }, [paused, track])
 
   const setVolume = (value: number) => {
     volumeRef.current = value
