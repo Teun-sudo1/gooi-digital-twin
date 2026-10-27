@@ -1,7 +1,7 @@
 import { PLACES } from '../data/places'
 import { flyToView } from '../features/map/camera'
 import { useMapInstance } from '../hooks/useMapInstance'
-import { CinematicButton } from './Cinematic'
+import { CinematicButton } from './CinematicButton'
 import { SearchBox } from './SearchBox'
 
 export function TopBar() {

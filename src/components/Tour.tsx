@@ -70,7 +70,8 @@ function markSeen() {
 }
 
 /** A short guided tour: a card per feature, with the part of the screen it's about lit up. */
-export function Tour() {
+/** Loaded on demand (see App), so it isn't part of the first download. */
+export default function Tour() {
   const open = useAppStore((s) => s.tourOpen)
   const ready = useAppStore((s) => s.mapStatus === 'ready')
   const mobile = useIsMobile()

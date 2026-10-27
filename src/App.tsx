@@ -1,5 +1,5 @@
+import { lazy, Suspense } from 'react'
 import { CameraControls } from './components/CameraControls'
-import { Cinematic } from './components/Cinematic'
 import { LayerPanel } from './components/LayerPanel'
 import { FollowCard } from './components/FollowCard'
 import { LightingController } from './components/LightingController'
@@ -12,7 +12,6 @@ import { SimulationBar } from './components/SimulationBar'
 import { SimulationDashboard } from './components/SimulationDashboard'
 import { StatusOverlay } from './components/StatusOverlay'
 import { TopBar } from './components/TopBar'
-import { Tour } from './components/Tour'
 import { WeatherOverlay } from './components/WeatherOverlay'
 import { useEnvironment } from './features/environment/useEnvironment'
 import { MapView } from './features/map/MapView'
@@ -25,6 +24,10 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useTrafficSimulation } from './hooks/useTrafficSimulation'
 import { useAppStore } from './store/useAppStore'
 
+// Opened later or only now and then: loaded on demand, after the map and simulation.
+const Cinematic = lazy(() => import('./components/Cinematic'))
+const Tour = lazy(() => import('./components/Tour'))
+
 export default function App() {
   useTrafficSimulation()
   useKeyboardShortcuts()
@@ -35,7 +38,8 @@ export default function App() {
   useComparisonLayer()
 
   const mobile = useIsMobile()
-  const cinematic = useAppStore((s) => s.cinematic === 'playing')
+  const cinematicMode = useAppStore((s) => s.cinematic)
+  const cinematic = cinematicMode === 'playing'
 
   return (
     <div className={`app ${mobile ? 'mobile' : ''} ${cinematic ? 'cinematic' : ''}`}>
@@ -59,8 +63,10 @@ export default function App() {
       {mobile ? <MobileDock /> : <SimulationBar />}
       <StatusOverlay />
       <LightingController />
-      <Tour />
-      <Cinematic />
+      <Suspense fallback={null}>
+        <Tour />
+        {cinematicMode && <Cinematic />}
+      </Suspense>
     </div>
   )
 }

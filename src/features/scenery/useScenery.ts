@@ -39,6 +39,24 @@ function addPools(map: MapLibreMap, scenery: Scenery) {
   )
 }
 
+/**
+ * Resolves once the simulation has its network (or failed, or after 15 s): the
+ * trees wait for it, so on a slow connection the streets and traffic come first.
+ */
+function afterSimulation() {
+  return new Promise<void>((resolve) => {
+    const done = (status: string) => status === 'ready' || status === 'error'
+    if (done(useSimulationStore.getState().status)) return resolve()
+    const timer = window.setTimeout(finish, 15_000)
+    const unsubscribe = useSimulationStore.subscribe((s) => done(s.status) && finish())
+    function finish() {
+      window.clearTimeout(timer)
+      unsubscribe()
+      resolve()
+    }
+  })
+}
+
 /** Loads trees and street lights, and keeps them in step with the layer toggles and the time of day. */
 export function useScenery() {
   const map = useMapInstance()
@@ -64,7 +82,8 @@ export function useScenery() {
     }
 
     const base = new URL(import.meta.env.BASE_URL, window.location.href)
-    fetchJson<SceneryFile>(new URL('data/gooi-scenery.json', base).href)
+    afterSimulation()
+      .then(() => (cancelled ? Promise.reject(new Error('cancelled')) : fetchJson<SceneryFile>(new URL('data/gooi-scenery.json', base).href)))
       .then((file) => {
         if (cancelled || !map.getStyle()) return
         const scenery = new Scenery(file)
@@ -96,7 +115,7 @@ export function useScenery() {
         )
       })
       // Scenery is decoration: the map works without it.
-      .catch((error) => console.warn('[scenery]', error))
+      .catch((error) => cancelled || console.warn('[scenery]', error))
 
     return () => {
       cancelled = true

@@ -9,7 +9,8 @@ export default defineConfig(({ command, isPreview }) => ({
   base: command === 'build' || isPreview ? '/gooi-digital-twin/' : '/',
   plugins: [react()],
   // MapLibre GL alone is ~1 MB minified; that is expected for a WebGL map engine.
-  build: { chunkSizeWarningLimit: 1600 },
+  // In its own file it stays cached in the browser when only the app changes.
+  build: { chunkSizeWarningLimit: 1600, rollupOptions: { output: { manualChunks: (id) => (id.includes('node_modules/maplibre-gl') ? 'maplibre' : undefined) } } },
   // Simulation tests run minutes of simulated traffic on the real network; CI runners are slower.
   test: { testTimeout: 30_000 },
 }))
