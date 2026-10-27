@@ -194,6 +194,8 @@ const notTunnel: ExpressionSpecification = ['!=', ['get', 'brunnel'], 'tunnel']
 
 /** GeoJSON source of road surfaces and lane lines on multi-lane roads (filled by the simulation). */
 export const LANES = 'lane-markings'
+/** Zebra crossings and stop lines (polygons), from the simulation worker. */
+export const ROAD_PAINT = 'road-paint'
 
 /**
  * Street outlines from the BGT (Basisregistratie Grootschalige Topografie):
@@ -469,6 +471,13 @@ function buildLayers(color: Palette): LayerSpecification[] {
       },
     },
     {
+      id: 'road-paint',
+      type: 'fill',
+      source: ROAD_PAINT,
+      minzoom: 16,
+      paint: { 'fill-color': color.laneMarking },
+    },
+    {
       id: 'lane-centre',
       type: 'line',
       source: LANES,
@@ -680,6 +689,7 @@ export function buildStyle(palette: Palette): StyleSpecification {
           '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
       },
       [LANES]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      [ROAD_PAINT]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [NEW_ROADS]: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       [BGT]: {
         type: 'vector',

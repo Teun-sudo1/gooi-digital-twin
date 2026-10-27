@@ -251,7 +251,7 @@ export interface Viewport {
 }
 
 export type ToWorker =
-  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; lanesUrl: string; lanes: boolean; roadGeometryUrl: string; clock: number; density: number; speed: number; playing: boolean }
+  | { type: 'init'; networkUrl: string; transitUrl: string; demandUrl: string; signalsUrl: string; signals: boolean; lanesUrl: string; lanes: boolean; roadGeometryUrl: string; crossingsUrl: string; clock: number; density: number; speed: number; playing: boolean }
   | { type: 'play'; playing: boolean }
   | { type: 'speed'; speed: number }
   | { type: 'density'; density: number }
@@ -392,7 +392,7 @@ export type FromWorker =
   | { type: 'ready'; projection: Projection; lines: TransitLineInfo[]; timetableDate: string | null; signals: SignalHead[] }
   | { type: 'error'; message: string }
   /** Road surfaces and lane lines of multi-lane roads, as GeoJSON lines (lng/lat). */
-  | { type: 'laneMarkings'; features: { coordinates: [number, number][]; kind: string; offset: number }[] }
+  | { type: 'laneMarkings'; features: { coordinates: [number, number][]; kind: string; offset: number }[]; paint: [number, number][][] }
   | { type: 'frame'; agents: Float32Array; agentCount: number; transit: Float32Array; transitCount: number; signals: Uint8Array }
   | { type: 'follow'; id: number; info: FollowInfo | null }
   | { type: 'comparison'; comparison: Comparison | null }

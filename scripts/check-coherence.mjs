@@ -67,6 +67,10 @@ const inBox = ([x, y]) => {
 }
 check(signals.points.every(inBox), 'signals: a traffic signal lies outside the region')
 
+const crossings = json('public/data/gooi-crossings.json')
+check(crossings.points.length > 100 && Boolean(crossings.attribution), `crossings: ${crossings.points.length} points, attribution ${crossings.attribution ? 'present' : 'missing'}`)
+check(crossings.points.every(inBox), 'crossings: a zebra crossing lies outside the region')
+
 const lanes = json('public/data/gooi-lanes.json')
 const laneWays = Object.keys(lanes.ways)
 const networkWays = new Set(network.segments.way.map(String))

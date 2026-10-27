@@ -29,6 +29,7 @@ export const LAYER_GROUPS: LayerGroup[] = [
       'road-motorway',
       'lane-lines',
       'lane-centre',
+      'road-paint',
     ],
   },
   { id: 'rail', label: 'Rail', layerIds: ['rail', 'rail-hatch'] },
@@ -91,9 +92,11 @@ const roadOpacity = new Map<string, unknown>()
 
 export function applyBasemapStyle(map: MapLibreMap, basemap: Basemap) {
   for (const id of LAYER_GROUPS.find((g) => g.id === 'roads')!.layerIds) {
-    if (!map.getLayer(id)) continue
-    if (!roadOpacity.has(id)) roadOpacity.set(id, map.getPaintProperty(id, 'line-opacity') ?? 1)
+    const type = map.getLayer(id)?.type
+    if (type !== 'line' && type !== 'fill') continue
+    const property = `${type}-opacity` as const
+    if (!roadOpacity.has(id)) roadOpacity.set(id, map.getPaintProperty(id, property) ?? 1)
     const original = roadOpacity.get(id) as number
-    map.setPaintProperty(id, 'line-opacity', basemap === 'aerial' ? original * 0.45 : original)
+    map.setPaintProperty(id, property, basemap === 'aerial' ? original * 0.45 : original)
   }
 }

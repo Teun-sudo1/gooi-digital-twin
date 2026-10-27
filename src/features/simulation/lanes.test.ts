@@ -2,9 +2,10 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { Mode, type DemandFile, type NetworkFile } from '../../types/simulation'
-import { applyLanes, outerEdge, readRoadGeometry, type LanesFile, type RoadGeometryFile } from './lanes'
+import { applyLanes, laneMarkings, outerEdge, readRoadGeometry, type LanesFile, type RoadGeometryFile } from './lanes'
+import { roadPaint, snapCrossings, type CrossingsFile } from './markings'
 import { buildNetwork } from './network'
-import { turnAngle } from './signals'
+import { buildSignalPlan, turnAngle } from './signals'
 import { TrafficModel } from './traffic'
 
 const read = <T,>(path: string) =>
@@ -98,4 +99,30 @@ describe('lanes', () => {
     expect(leftTurnsInLane / leftTurns).toBeGreaterThan(0.8)
     expect(traffic.stats().strandedTrips).toBe(0)
   }, 120_000)
+})
+
+describe('road markings', () => {
+  const net = buildNetwork(read<NetworkFile>('gooi-network.json'))
+  applyLanes(net, sources, true)
+
+  it('put lane lines on every car street, and a centre line on two-way ones', () => {
+    const marks = laneMarkings(net, sources, true)
+    expect(marks.filter((m) => m.kind === 'centre').length).toBeGreaterThan(10_000)
+    expect(marks.filter((m) => m.kind === 'divider').length).toBeGreaterThan(1000)
+  })
+
+  it('paint zebras across the mapped crossings and stop lines at the lights', () => {
+    const crossings = snapCrossings(net, read<CrossingsFile>('gooi-crossings.json').points)
+    expect(crossings.length).toBeGreaterThan(500)
+    const zebras = roadPaint(net, sources, true, crossings, null)
+    // A few stripes per crossing, each a closed rectangle of 3 m by 0.5 m.
+    expect(zebras.length / crossings.length).toBeGreaterThan(3)
+    for (const ring of zebras.slice(0, 50)) {
+      expect(ring).toHaveLength(5)
+      expect(Math.hypot(ring[1][0] - ring[0][0], ring[1][1] - ring[0][1])).toBeCloseTo(3, 5)
+      expect(Math.hypot(ring[2][0] - ring[1][0], ring[2][1] - ring[1][1])).toBeCloseTo(0.5, 5)
+    }
+    const plan = buildSignalPlan(net, read<{ points: [number, number][] }>('gooi-signals.json').points)
+    expect(roadPaint(net, sources, true, [], plan)).toHaveLength(plan.approaches.length)
+  })
 })

@@ -26,6 +26,7 @@ import {
 import { BusFleet, matchLines, type BusMeasures } from './buses'
 import { fetchJson, fromLngLat, MODE_BIT, toLngLat, type Network } from './network'
 import { findRoute, type Route } from './routing'
+import { roadPaint, snapCrossings, type Crossing, type CrossingsFile } from './markings'
 import { applyLanes, laneMarkings, readRoadGeometry, type LaneSources, type LanesFile, type RoadGeometry, type RoadGeometryFile } from './lanes'
 import { buildSignalPlan, Signals } from './signals'
 import { CO2_KG_PER_KM, ROAD_ID_LIMIT, TrafficModel, type Measures } from './traffic'
@@ -71,6 +72,8 @@ let transit: TransitModel | null = null
 let lanesFile: LanesFile | null = null
 /** Measured carriageways (empty when the file is missing or belongs to another network). */
 let roadGeometry: RoadGeometry = new Map()
+/** Mapped zebra crossings, snapped to the original streets (segment ids stay valid in scenarios). */
+let crossings: Crossing[] = []
 let lanesOn = true
 let playing = true
 let speed = 5
@@ -271,7 +274,7 @@ function compare(): Comparison | null {
 
 async function init(message: Extract<ToWorker, { type: 'init' }>) {
   try {
-    const [file, transitFile, demand, signalsFile, lanes, geometry] = await Promise.all([
+    const [file, transitFile, demand, signalsFile, lanes, geometry, crossingsFile] = await Promise.all([
       fetchJson<NetworkFile>(message.networkUrl),
       fetchJson<TransitFile>(message.transitUrl),
       // Without neighbourhood figures, trips are spread evenly.
@@ -282,6 +285,8 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
       fetchJson<LanesFile>(message.lanesUrl).catch(() => null),
       // Without measured carriageways, lanes sit at standard widths beside the street's line.
       fetchJson<RoadGeometryFile>(message.roadGeometryUrl).catch(() => null),
+      // Without mapped crossings, no zebras are painted.
+      fetchJson<CrossingsFile>(message.crossingsUrl).catch(() => null),
     ])
     lanesFile = lanes
     // Rows are by segment: only use them with the network they were measured on.
@@ -291,6 +296,7 @@ async function init(message: Extract<ToWorker, { type: 'init' }>) {
     scenario = buildScenarioNetwork(file, [])
     originalNet = scenario.net
     applyLanes(scenario.net, laneSources(scenario), lanesOn)
+    crossings = crossingsFile ? snapCrossings(scenario.net, crossingsFile.points) : []
     transit = new TransitModel(transitFile)
     const traffic = new TrafficModel(scenario.net, { density: message.density, startClock: message.clock, seed: Date.now(), demand })
     traffic.viewport = viewport
@@ -351,11 +357,13 @@ function laneSources(s: ScenarioNetwork | null): LaneSources {
   return { file: lanesFile, geometry: roadGeometry, added: s ? { first: s.baseSegments, lanes: s.newLanes } : undefined }
 }
 
-/** Lane lines for the map: every car street of the current scenario, without removed ones. */
+/** Lane lines and road paint for the map: every car street of the current scenario, without removed ones. */
 function postLaneMarkings() {
   if (!scenario) return
   const projection = scenario.net.projection
   const round = (v: number) => Math.round(v * 1e6) / 1e6
+  const signals = main?.traffic.signals
+  const paint = roadPaint(scenario.net, laneSources(scenario), lanesOn, crossings, signals?.enabled ? signals.plan : null, scenario.removed)
   post({
     type: 'laneMarkings',
     features: laneMarkings(scenario.net, laneSources(scenario), lanesOn, scenario.removed).map((m) => ({
@@ -363,6 +371,7 @@ function postLaneMarkings() {
       kind: m.kind,
       offset: Math.round(m.offset * 100) / 100,
     })),
+    paint: paint.map((ring) => ring.map(([x, y]) => toLngLat(projection, x, y).map(round) as [number, number])),
   })
 }
 
@@ -475,6 +484,7 @@ self.onmessage = (event: MessageEvent<ToWorker>) => {
       break
     case 'signals':
       if (main) for (const run of runs()) if (run.traffic.signals) run.traffic.signals.enabled = message.enabled === true
+      postLaneMarkings()
       break
     case 'lanes':
       lanesOn = message.enabled === true

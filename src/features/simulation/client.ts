@@ -15,7 +15,7 @@ import {
   type ToWorker,
   type TransitLineInfo,
 } from '../../types/simulation'
-import { LANES } from '../map/style'
+import { LANES, ROAD_PAINT } from '../map/style'
 import { AgentLayer, INSTANCE_FLOATS, InstanceFlag, MODEL_MIN_ZOOM } from './agentLayer'
 import { agentIcon, CAR_COLOURS, CLOTHING_COLOURS, registerIcons } from './icons'
 import { fromLngLat, toLngLat } from './network'
@@ -144,6 +144,7 @@ export class SimulationClient {
       signals: useAppStore.getState().layerVisibility.trafficLights,
       lanesUrl: new URL('data/gooi-lanes.json', base).href,
       roadGeometryUrl: new URL('data/gooi-road-geometry.json', base).href,
+      crossingsUrl: new URL('data/gooi-crossings.json', base).href,
       lanes: useAppStore.getState().layerVisibility.lanes,
       clock: state.startClock,
       density: state.density,
@@ -335,6 +336,10 @@ export class SimulationClient {
         this.map.getSource<GeoJSONSource>(LANES)?.setData({
           type: 'FeatureCollection',
           features: message.features.map(({ coordinates, ...properties }) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates }, properties })),
+        })
+        this.map.getSource<GeoJSONSource>(ROAD_PAINT)?.setData({
+          type: 'FeatureCollection',
+          features: message.paint.map((ring) => ({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} })),
         })
         break
       case 'error':
